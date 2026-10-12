@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Hook: pre-commit. Fast checks only, so a commit stays quick enough to use.
+#
+# A pre-commit hook that takes minutes gets bypassed with --no-verify, and a
+# bypassed hook protects nothing. So this hook runs only the cheap checks that
+# must not be deferred:
+#
+#   1. gofmt on the staged Go files
+#   2. AGENTS.md 1.2 header contract on the staged Go files
+#   3. antislop comment rules on the staged Go files
+#   4. gitleaks on the staged patch, because a secret in history cannot be
+#      undone by deleting the file
+#
+# The slower gates (test suite, staticcheck) run in pre-push.
+#
+# Install: scripts/hooks/install.sh  (sets core.hooksPath)
+# Bypass:  git commit --no-verify  (should be rare and justified)
+
+set -euo pipefail
+. "$(dirname "$0")/../lib/common.sh"
+
+root="$(repo_root)"
+failed=0
+
+# staged_go_files prints staged Go files that still exist on disk. A deleted
+# file cannot be formatted or checked.
+staged_go_files() {
+	git -C "$root" diff --cached --name-only --diff-filter=ACMR -- '*.go' |
+		while IFS= read -r rel; do
+			[ -n "$rel" ] || continue
+			if [ -f "$root/$rel" ]; then printf '%s\n' "$root/$rel"; fi
+		done
+}
+
+mapfile -t go_files < <(staged_go_files)
+
+if [ "${#go_files[@]}" -gt 0 ]; then
+	gate_start "gofmt (staged Go files)"
+	if ! have gofmt; then
+		gate_fail "gofmt is not installed"
+		failed=1
+	else
+		unformatted="$(gofmt -l "${go_files[@]}" || true)"
+		if [ -z "$unformatted" ]; then
+			gate_pass "gofmt"
+		else
+			gate_fail "these staged files are not gofmt-clean:"
+			printf '  %s\n' $unformatted >&2
+			gate_fail "run: gofmt -w <files>"
+			failed=1
+		fi
+	fi
+
+	gate_start "AGENTS.md 1.2 headers (staged Go files)"
+	if bash "$root/scripts/gates/go-headers.sh"; then
+		gate_pass "headers"
+	else
+		gate_fail "header contract violated"
+		failed=1
+	fi
+fi
+
+gate_start "antislop comment rules"
+if bash "$root/scripts/gates/antislop.sh"; then
+	gate_pass "antislop"
+else
+	gate_fail "antislop comment rules violated"
+	failed=1
+fi
+
+gate_start "gitleaks (staged)"
+if bash "$root/scripts/gates/secrets.sh" --staged; then
+	gate_pass "secrets"
+else
+	gate_fail "secret scanning failed"
+	failed=1
+fi
+
+if [ "$failed" -ne 0 ]; then
+	printf '\ncommit blocked: fix the failures above, or use --no-verify to bypass (discouraged)\n' >&2
+	exit 1
+fi
+
+exit 0

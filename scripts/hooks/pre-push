@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Hook: pre-push. The full gate set, run with GATES_BASE_REF set to the commit
+# the pushed branch started from, so the changed-file gates inspect the whole
+# push rather than an empty working tree.
+#
+# Install: scripts/hooks/install.sh  (sets core.hooksPath)
+# Bypass:  git push --no-verify
+
+set -euo pipefail
+. "$(dirname "$0")/../lib/common.sh"
+
+root="$(repo_root)"
+null_sha=0000000000000000000000000000000000000000
+
+# Git hands the hook one row per pushed ref on stdin:
+# local_ref local_sha remote_ref remote_sha. The rows are read up front so a
+# git command run inside the loop cannot consume them.
+pushed_refs=()
+while IFS= read -r line; do
+	[ -n "$line" ] && pushed_refs+=("$line")
+done
+
+base=""
+for line in ${pushed_refs[@]+"${pushed_refs[@]}"}; do
+	read -r _local_ref local_sha _remote_ref remote_sha <<<"$line"
+	[ -n "${local_sha:-}" ] || continue
+	# A branch deletion pushes no content.
+	[ "$local_sha" = "$null_sha" ] && continue
+	if [ "$remote_sha" = "$null_sha" ]; then
+		# A new branch has no remote base. Diff against the merge base with the
+		# default upstream when one exists, otherwise the full history is in scope.
+		base="$(git -C "$root" rev-parse --verify --quiet origin/HEAD 2>/dev/null || true)"
+		if [ -n "$base" ]; then
+			base="$(git -C "$root" merge-base "$base" "$local_sha" 2>/dev/null || true)"
+		fi
+		[ -n "$base" ] || base="$(git -C "$root" rev-list --max-parents=0 "$local_sha" | tail -n1)"
+	elif git -C "$root" cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+		base="$remote_sha"
+	else
+		base=""
+	fi
+	break
+done
+
+if [ -n "$base" ]; then
+	export GATES_BASE_REF="$base"
+fi
+
+exec bash "$root/scripts/gates/all.sh"
