@@ -1,3 +1,5 @@
+# GenerativeAutoPost Project's
+
 # binaries and build output
 *.exe
 *.out
@@ -22,3 +24,19 @@ app-ui/.env
 node_modules/
 app-ui/dist/
 app-ui/.bun/
+
+# IDE & CLI
+.vscode
+.pi
+.codebuddy
+.opencode
+.claude
+.qoder
+.omp
+
+# Generate Development Tools
+.superpowers
+.antislop
+
+# File & Folder Local
+backups
