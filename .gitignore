@@ -1,0 +1,24 @@
+# binaries and build output
+*.exe
+*.out
+/bin/
+/dist/
+
+# env and secrets (per subfolder, never committed)
+app-serve/.env
+app-ui/.env
+*.env
+!.env.example
+
+# local tooling
+/tmp/
+*.log
+.DS_Store
+
+# Go
+/vendor/
+
+# Bun / Node
+node_modules/
+app-ui/dist/
+app-ui/.bun/

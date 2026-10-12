@@ -1,0 +1,12 @@
+title = "GenerativeAutoPost gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "example files and docs must not trip the scanner"
+paths = [
+  '''\.example$''',
+  '''docs/''',
+  '''README\.md$''',
+]
