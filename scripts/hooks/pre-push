@@ -21,7 +21,7 @@ while IFS= read -r line; do
 done
 
 base=""
-for line in ${pushed_refs[@]+"${pushed_refs[@]}"}; do
+for line in "${pushed_refs[@]+"${pushed_refs[@]}"}"; do
 	read -r _local_ref local_sha _remote_ref remote_sha <<<"$line"
 	[ -n "${local_sha:-}" ] || continue
 	# A branch deletion pushes no content.
