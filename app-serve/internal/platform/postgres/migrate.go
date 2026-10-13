@@ -18,22 +18,37 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const journalTable = "schema_migrations"
 
+// migrationLockKey is one fixed advisory key shared by every runner. Two
+// replicas booting at once would otherwise both read "not applied" and both
+// apply the same file.
+const migrationLockKey int64 = 0x6D6967726174
+
 // Up applies every pending migration in dir, oldest filename first. Running it
 // against an already-applied directory is a no-op.
 func Up(ctx context.Context, pool *pgxpool.Pool, dir string) error {
-	if err := ensureJournal(ctx, pool); err != nil {
-		return err
-	}
-	applied, err := journalVersions(ctx, pool)
+	files, err := migrationFiles(dir, "up")
 	if err != nil {
 		return err
 	}
-	files, err := migrationFiles(dir, "up")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMigrations(ctx, tx); err != nil {
+		return err
+	}
+	if err := ensureJournal(ctx, tx); err != nil {
+		return err
+	}
+	applied, err := journalVersions(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -45,11 +60,11 @@ func Up(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 		if done[version] {
 			continue
 		}
-		if err := applyFile(ctx, pool, filepath.Join(dir, files[version]), version, false); err != nil {
+		if err := applyFile(ctx, tx, filepath.Join(dir, files[version]), version, false); err != nil {
 			return fmt.Errorf("postgres: apply %s: %w", version, err)
 		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // Down rolls back the most recently applied migrations, newest first. A
@@ -58,14 +73,23 @@ func Down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int) error 
 	if steps <= 0 {
 		return nil
 	}
-	if err := ensureJournal(ctx, pool); err != nil {
-		return err
-	}
-	applied, err := journalVersions(ctx, pool)
+	files, err := migrationFiles(dir, "down")
 	if err != nil {
 		return err
 	}
-	files, err := migrationFiles(dir, "down")
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := lockMigrations(ctx, tx); err != nil {
+		return err
+	}
+	if err := ensureJournal(ctx, tx); err != nil {
+		return err
+	}
+	applied, err := journalVersions(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -75,30 +99,39 @@ func Down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int) error 
 		if !ok {
 			return fmt.Errorf("postgres: no down migration for %s", version)
 		}
-		if err := applyFile(ctx, pool, filepath.Join(dir, name), version, true); err != nil {
+		if err := applyFile(ctx, tx, filepath.Join(dir, name), version, true); err != nil {
 			return fmt.Errorf("postgres: revert %s: %w", version, err)
 		}
 		steps--
+	}
+	return tx.Commit(ctx)
+}
+
+// lockMigrations serializes whole runs behind one transaction-scoped advisory
+// key, so the journal read and the DDL apply cannot interleave.
+func lockMigrations(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", migrationLockKey); err != nil {
+		return fmt.Errorf("postgres: acquire migration lock: %w", err)
 	}
 	return nil
 }
 
 // ensureJournal creates the journal table once per database.
-func ensureJournal(ctx context.Context, pool *pgxpool.Pool) error {
+func ensureJournal(ctx context.Context, tx pgx.Tx) error {
 	sql := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		version    text PRIMARY KEY,
 		applied_at timestamptz NOT NULL DEFAULT now()
 	)`, journalTable)
-	if _, err := pool.Exec(ctx, sql); err != nil {
+	if _, err := tx.Exec(ctx, sql); err != nil {
 		return fmt.Errorf("postgres: create journal: %w", err)
 	}
 	return nil
 }
 
 // journalVersions returns every journaled version, ordered oldest first.
-func journalVersions(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+func journalVersions(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	query := "SELECT version FROM " + journalTable + " ORDER BY version ASC"
-	rows, err := pool.Query(ctx, query)
+	rows, err := tx.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: read journal: %w", err)
 	}
@@ -118,19 +151,13 @@ func journalVersions(ctx context.Context, pool *pgxpool.Pool) ([]string, error) 
 	return versions, nil
 }
 
-// applyFile runs one migration file and its journal change in a single
-// transaction, so a failed statement leaves no partial journal row.
-func applyFile(ctx context.Context, pool *pgxpool.Pool, path, version string, down bool) error {
+// applyFile runs one migration file and its journal change inside the caller's
+// transaction.
+func applyFile(ctx context.Context, tx pgx.Tx, path, version string, down bool) error {
 	statements, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
 	}
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	if _, err := tx.Exec(ctx, string(statements)); err != nil {
 		return fmt.Errorf("run SQL: %w", err)
 	}
@@ -142,7 +169,7 @@ func applyFile(ctx context.Context, pool *pgxpool.Pool, path, version string, do
 	if err != nil {
 		return fmt.Errorf("write journal: %w", err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // migrationFiles maps version to filename for the given direction.

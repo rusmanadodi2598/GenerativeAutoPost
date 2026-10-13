@@ -14,75 +14,11 @@ package postgres_test
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/postgres"
 )
-
-const migrationsDir = "../../../../migrations"
-
-func testPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := os.Getenv("GENAUTO_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Fatal("GENAUTO_TEST_POSTGRES_DSN is required for integration tests")
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("open pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
-// resetSchema returns the test database to an empty public schema.
-func resetSchema(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-	ctx := context.Background()
-	if _, err := pool.Exec(ctx, "DROP SCHEMA public CASCADE"); err != nil {
-		t.Fatalf("drop schema: %v", err)
-	}
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA public"); err != nil {
-		t.Fatalf("create schema: %v", err)
-	}
-}
-
-func tableNames(t *testing.T, pool *pgxpool.Pool) map[string]bool {
-	t.Helper()
-	rows, err := pool.Query(context.Background(),
-		`SELECT table_name FROM information_schema.tables
-		  WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`)
-	if err != nil {
-		t.Fatalf("query tables: %v", err)
-	}
-	defer rows.Close()
-	names := make(map[string]bool)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan table name: %v", err)
-		}
-		names[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate tables: %v", err)
-	}
-	return names
-}
-
-func journalCount(t *testing.T, pool *pgxpool.Pool) int {
-	t.Helper()
-	var count int
-	if err := pool.QueryRow(context.Background(),
-		"SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
-		t.Fatalf("count journal: %v", err)
-	}
-	return count
-}
 
 func TestUpCreatesDomainTablesAndJournal(t *testing.T) {
 	pool := testPool(t)
@@ -134,20 +70,33 @@ func TestUpCreatesRequiredIndexes(t *testing.T) {
 		t.Fatalf("iterate indexes: %v", err)
 	}
 
-	want := []string{
+	// The three mandated indexes must be unique, not merely present. Dropping
+	// UNIQUE would still leave a row in pg_indexes, so indexdef is asserted.
+	unique := []string{
 		"ux_tiktok_accounts_open_id",
 		"ux_publish_attempts_publish_id",
-		"ix_publish_attempts_account_status",
 		"ux_webhook_events_dedupe_key",
 	}
-	for _, name := range want {
-		if _, ok := indexes[name]; !ok {
+	for _, name := range unique {
+		def, ok := indexes[name]
+		if !ok {
 			t.Errorf("index %q is missing after Up", name)
+			continue
 		}
+		if !strings.HasPrefix(def, "CREATE UNIQUE INDEX") {
+			t.Errorf("index %q is not unique: %s", name, def)
+		}
+	}
+
+	if _, ok := indexes["ix_publish_attempts_account_status"]; !ok {
+		t.Errorf("index %q is missing after Up", "ix_publish_attempts_account_status")
 	}
 	def, ok := indexes["ix_video_stats_video_fetched"]
 	if !ok {
 		t.Fatalf("index %q is missing after Up", "ix_video_stats_video_fetched")
+	}
+	if strings.HasPrefix(def, "CREATE UNIQUE INDEX") {
+		t.Errorf("video_stats index must stay non-unique: %s", def)
 	}
 	if !strings.Contains(def, "fetched_at DESC") {
 		t.Errorf("video_stats index definition lacks DESC: %s", def)
