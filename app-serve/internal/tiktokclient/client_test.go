@@ -12,7 +12,10 @@ package tiktokclient
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
@@ -100,6 +103,54 @@ func TestExchangeCode(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) { tc.runExchange(t, false) })
+	}
+}
+
+// TestExchangeCodeRateLimitedOnExhaustionWithoutBody proves a body-less 429 maps
+// to the typed rate limited code once retries are exhausted.
+func TestExchangeCodeRateLimitedOnExhaustionWithoutBody(t *testing.T) {
+	f := newFakeTikTok(t)
+	f.queue(tokenPath, fakeResponse{status: http.StatusTooManyRequests})
+	c := newTestClient(t, f)
+	_, err := c.ExchangeCode(context.Background(), "the-code")
+	wantError(t, err, apierror.CodeTikTokRateLimited, "")
+	wantHits(t, f, 3)
+}
+
+// TestExchangeCodeUnavailableOnExhaustionWithUnknownCode proves a 503 carrying
+// an unclassifiable code maps to unavailable, not unknown.
+func TestExchangeCodeUnavailableOnExhaustionWithUnknownCode(t *testing.T) {
+	f := newFakeTikTok(t)
+	f.queue(tokenPath, wireErrorResponse(http.StatusServiceUnavailable, "brand_new_code", "?", "log-3"))
+	c := newTestClient(t, f)
+	_, err := c.ExchangeCode(context.Background(), "the-code")
+	wantError(t, err, apierror.CodeTikTokUnavailable, "")
+	wantHits(t, f, 3)
+}
+
+// TestRetryBackoffHonorsContextCancellation proves the retry sleep returns the
+// raw context error instead of a TikTok unavailable error.
+func TestRetryBackoffHonorsContextCancellation(t *testing.T) {
+	f := newFakeTikTok(t)
+	f.handle(tokenPath, wireErrorResponse(http.StatusTooManyRequests, "rate_limit_exceeded", "slow down", ""))
+	c := newTestClient(t, f)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		for f.hits() == 0 {
+			runtime.Gosched()
+		}
+		cancel()
+	}()
+	_, err := c.ExchangeCode(ctx, "the-code")
+	if err == nil {
+		t.Fatal("expected a cancellation error")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		t.Fatalf("cancellation must not be *apierror.Error, got %v", apiErr)
 	}
 }
 

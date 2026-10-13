@@ -11,16 +11,12 @@
 package tiktokclient
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
 // defaultBaseURL is the production TikTok open API host.
@@ -54,13 +50,6 @@ func New(cfg Config) *Client {
 	return &Client{cfg: cfg}
 }
 
-// httpResult carries what the retry loop needs from one attempt.
-type httpResult struct {
-	body       []byte
-	status     int
-	retryAfter string
-}
-
 // send performs one HTTP attempt and reads the whole response body.
 func (c *Client) send(ctx context.Context, method, endpoint string, body io.Reader, headers map[string]string, contentType string) (httpResult, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
@@ -87,59 +76,6 @@ func (c *Client) send(ctx context.Context, method, endpoint string, body io.Read
 		return httpResult{}, fmt.Errorf("reading response: %w", err)
 	}
 	return httpResult{body: raw, status: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}, nil
-}
-
-// bodyReader rebuilds a reader per attempt so retries resend the same bytes.
-func bodyReader(payload []byte) io.Reader {
-	if payload == nil {
-		return nil
-	}
-	return bytes.NewReader(payload)
-}
-
-// parseErrorBody extracts the wire error from a failure body, or nil.
-func parseErrorBody(raw []byte) *apiErrorBody {
-	if len(raw) == 0 {
-		return nil
-	}
-	var env apiEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil
-	}
-	if env.Error == nil || env.Error.Code == "" || env.Error.Code == "ok" {
-		return nil
-	}
-	return env.Error
-}
-
-// parseEnvelope decodes a response envelope and maps any wire error.
-func parseEnvelope(raw []byte) (apiEnvelope, *apierror.Error) {
-	var env apiEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return env, badUpstream(err)
-	}
-	if env.Error != nil && env.Error.Code != "" && env.Error.Code != "ok" {
-		return env, mapWireError(*env.Error)
-	}
-	return env, nil
-}
-
-// tokenForm renders a token request as form fields.
-func tokenForm(req tokenRequest) url.Values {
-	form := url.Values{}
-	form.Set("client_key", req.ClientKey)
-	form.Set("client_secret", req.ClientSecret)
-	form.Set("grant_type", req.GrantType)
-	if req.Code != "" {
-		form.Set("code", req.Code)
-	}
-	if req.RedirectURI != "" {
-		form.Set("redirect_uri", req.RedirectURI)
-	}
-	if req.RefreshToken != "" {
-		form.Set("refresh_token", req.RefreshToken)
-	}
-	return form
 }
 
 // ExchangeCode trades an authorization code for a token set.

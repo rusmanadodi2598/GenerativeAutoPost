@@ -11,6 +11,7 @@
 package tiktokclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -64,17 +66,39 @@ func (c *Client) do(ctx context.Context, method, path string, headers map[string
 			if attempt == maxAttempts {
 				return nil, apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is temporarily unavailable. Try again shortly.").Wrap(err)
 			}
-			time.Sleep(backoffFor(attempt, ""))
+			if sleepErr := sleepBackoff(ctx, attempt, ""); sleepErr != nil {
+				return nil, sleepErr
+			}
 			continue
 		}
 		switch {
 		case res.status >= 200 && res.status < 300:
 			return res.body, nil
-		case res.status == http.StatusTooManyRequests || res.status >= 500:
+		case res.status == http.StatusTooManyRequests:
+			bodyErr := parseErrorBody(res.body)
+			if attempt == maxAttempts {
+				apiErr := apierror.New(apierror.CodeTikTokRateLimited, 0, "Too many requests. Try again shortly.")
+				if bodyErr != nil {
+					apiErr = apiErr.WithLogID(bodyErr.LogID)
+				}
+				return nil, apiErr
+			}
+			if bodyErr != nil {
+				if _, known := wireErrors[bodyErr.Code]; known && !retryableWireCode(bodyErr.Code) {
+					return nil, mapWireError(*bodyErr)
+				}
+			}
+			if err := sleepBackoff(ctx, attempt, res.retryAfter); err != nil {
+				return nil, err
+			}
+			continue
+		case res.status >= 500:
 			bodyErr := parseErrorBody(res.body)
 			if attempt == maxAttempts {
 				if bodyErr != nil {
-					return nil, mapWireError(*bodyErr)
+					if _, known := wireErrors[bodyErr.Code]; known {
+						return nil, mapWireError(*bodyErr)
+					}
 				}
 				return nil, apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is temporarily unavailable. Try again shortly.")
 			}
@@ -83,7 +107,9 @@ func (c *Client) do(ctx context.Context, method, path string, headers map[string
 					return nil, mapWireError(*bodyErr)
 				}
 			}
-			time.Sleep(backoffFor(attempt, res.retryAfter))
+			if err := sleepBackoff(ctx, attempt, res.retryAfter); err != nil {
+				return nil, err
+			}
 			continue
 		case res.status >= 400:
 			bodyErr := parseErrorBody(res.body)
@@ -112,6 +138,76 @@ func backoffFor(attempt int, retryAfter string) time.Duration {
 		}
 	}
 	return time.Duration(rand.Int63n(int64(delay) + 1))
+}
+
+// sleepBackoff waits out the retry delay, returning early on context cancellation.
+func sleepBackoff(ctx context.Context, attempt int, retryAfter string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(backoffFor(attempt, retryAfter)):
+	}
+	return nil
+}
+
+// httpResult carries what the retry loop needs from one attempt.
+type httpResult struct {
+	body       []byte
+	status     int
+	retryAfter string
+}
+
+// bodyReader rebuilds a reader per attempt so retries resend the same bytes.
+func bodyReader(payload []byte) io.Reader {
+	if payload == nil {
+		return nil
+	}
+	return bytes.NewReader(payload)
+}
+
+// parseErrorBody extracts the wire error from a failure body, or nil.
+func parseErrorBody(raw []byte) *apiErrorBody {
+	if len(raw) == 0 {
+		return nil
+	}
+	var env apiEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil
+	}
+	if env.Error == nil || env.Error.Code == "" || env.Error.Code == "ok" {
+		return nil
+	}
+	return env.Error
+}
+
+// parseEnvelope decodes a response envelope and maps any wire error.
+func parseEnvelope(raw []byte) (apiEnvelope, *apierror.Error) {
+	var env apiEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return env, badUpstream(err)
+	}
+	if env.Error != nil && env.Error.Code != "" && env.Error.Code != "ok" {
+		return env, mapWireError(*env.Error)
+	}
+	return env, nil
+}
+
+// tokenForm renders a token request as form fields.
+func tokenForm(req tokenRequest) url.Values {
+	form := url.Values{}
+	form.Set("client_key", req.ClientKey)
+	form.Set("client_secret", req.ClientSecret)
+	form.Set("grant_type", req.GrantType)
+	if req.Code != "" {
+		form.Set("code", req.Code)
+	}
+	if req.RedirectURI != "" {
+		form.Set("redirect_uri", req.RedirectURI)
+	}
+	if req.RefreshToken != "" {
+		form.Set("refresh_token", req.RefreshToken)
+	}
+	return form
 }
 
 // decodeData unwraps the data member of an API envelope.
