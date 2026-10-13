@@ -34,8 +34,11 @@ type Session struct {
 // errSessionUnauthorized is the client safe answer for a missing session.
 var errSessionUnauthorized = apierror.New(apierror.CodeUnauthorized, 0, "Your session has expired. Sign in again.")
 
-// errSessionUnavailable is the client safe answer for a Redis outage.
-var errSessionUnavailable = apierror.New(apierror.CodeServiceUnavailable, 0, "Session storage is unavailable. Try again shortly.")
+// errSessionUnavailable builds the client safe answer for a Redis outage. A
+// fresh value per call keeps concurrent Wrap calls off shared state.
+func errSessionUnavailable(cause error) *apierror.Error {
+	return apierror.New(apierror.CodeServiceUnavailable, 0, "Session storage is unavailable. Try again shortly.").Wrap(cause)
+}
 
 // SessionStore persists sessions in Redis under a fixed TTL.
 type SessionStore struct {
@@ -52,10 +55,10 @@ func NewSessionStore(client *redis.Client, ttl time.Duration) *SessionStore {
 func (s *SessionStore) Create(ctx context.Context, sess Session) error {
 	raw, err := json.Marshal(sess)
 	if err != nil {
-		return errSessionUnavailable.Wrap(err)
+		return errSessionUnavailable(err)
 	}
 	if err := s.client.Set(ctx, redisx.KeySession+sess.ID, raw, s.ttl).Err(); err != nil {
-		return errSessionUnavailable.Wrap(err)
+		return errSessionUnavailable(err)
 	}
 	return nil
 }
@@ -67,11 +70,11 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 		return nil, errSessionUnauthorized
 	}
 	if err != nil {
-		return nil, errSessionUnavailable.Wrap(err)
+		return nil, errSessionUnavailable(err)
 	}
 	var sess Session
 	if err := json.Unmarshal(raw, &sess); err != nil {
-		return nil, errSessionUnavailable.Wrap(err)
+		return nil, errSessionUnavailable(err)
 	}
 	return &sess, nil
 }
@@ -81,7 +84,7 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 // leave a live session behind after logout.
 func (s *SessionStore) Delete(ctx context.Context, id string) error {
 	if err := s.client.Del(ctx, redisx.KeySession+id).Err(); err != nil {
-		return errSessionUnavailable.Wrap(err)
+		return errSessionUnavailable(err)
 	}
 	return nil
 }
@@ -90,7 +93,7 @@ func (s *SessionStore) Delete(ctx context.Context, id string) error {
 func (s *SessionStore) Touch(ctx context.Context, id string) error {
 	ok, err := s.client.Expire(ctx, redisx.KeySession+id, s.ttl).Result()
 	if err != nil {
-		return errSessionUnavailable.Wrap(err)
+		return errSessionUnavailable(err)
 	}
 	if !ok {
 		return errSessionUnauthorized

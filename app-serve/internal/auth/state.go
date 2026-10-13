@@ -29,8 +29,11 @@ const stateTTL = 10 * time.Minute
 // errStateUnauthorized is the client safe answer for a spent or absent state.
 var errStateUnauthorized = apierror.New(apierror.CodeUnauthorized, 0, "The authorization attempt expired or was already used.")
 
-// errStateUnavailable is the client safe answer for a Redis outage.
-var errStateUnavailable = apierror.New(apierror.CodeServiceUnavailable, 0, "Authorization storage is unavailable. Try again shortly.")
+// errStateUnavailable builds the client safe answer for a Redis outage. A
+// fresh value per call keeps concurrent Wrap calls off shared state.
+func errStateUnavailable(cause error) *apierror.Error {
+	return apierror.New(apierror.CodeServiceUnavailable, 0, "Authorization storage is unavailable. Try again shortly.").Wrap(cause)
+}
 
 // StateStore keeps OAuth state values in Redis until the callback spends them.
 type StateStore struct {
@@ -49,10 +52,10 @@ func (s *StateStore) Issue(ctx context.Context, requestedScopes string) (string,
 	}
 	state, err := randomToken()
 	if err != nil {
-		return "", errStateUnavailable.Wrap(err)
+		return "", errStateUnavailable(err)
 	}
 	if err := s.client.Set(ctx, redisx.KeyOAuthState+state, requestedScopes, stateTTL).Err(); err != nil {
-		return "", errStateUnavailable.Wrap(err)
+		return "", errStateUnavailable(err)
 	}
 	return state, nil
 }
@@ -67,7 +70,7 @@ func (s *StateStore) Consume(ctx context.Context, state string) (string, error) 
 		return "", errStateUnauthorized
 	}
 	if err != nil {
-		return "", errStateUnavailable.Wrap(err)
+		return "", errStateUnavailable(err)
 	}
 	return scopes, nil
 }

@@ -81,7 +81,7 @@ func SessionFrom(c *gin.Context) (*Session, bool) {
 func writeSessionError(c *gin.Context, err error) {
 	var apiErr *apierror.Error
 	if !errors.As(err, &apiErr) {
-		apiErr = errSessionUnavailable
+		apiErr = errSessionUnavailable(err)
 	}
 	apierror.Write(c.Writer, c.Request, apiErr)
 }
