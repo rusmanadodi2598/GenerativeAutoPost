@@ -59,13 +59,22 @@ func TestLimiterAllowsUnderTheLimit(t *testing.T) {
 func TestLimiterRefusesAtTheLimit(t *testing.T) {
 	l, _ := newTestLimiter(t)
 	ctx := context.Background()
+	var remaining int64
 	for i := int64(0); i < 6; i++ {
-		if _, err := l.Allow(ctx, "acct-1", FamilyVideoInit); err != nil {
+		var err error
+		remaining, err = l.Allow(ctx, "acct-1", FamilyVideoInit)
+		if err != nil {
 			t.Fatalf("Allow %d: %v", i, err)
 		}
 	}
-	_, err := l.Allow(ctx, "acct-1", FamilyVideoInit)
+	if remaining != 0 {
+		t.Fatalf("remaining at the limit = %d, want 0", remaining)
+	}
+	remaining, err := l.Allow(ctx, "acct-1", FamilyVideoInit)
 	wantError(t, err, apierror.CodeTikTokRateLimited, "")
+	if remaining != 0 {
+		t.Fatalf("remaining after refusal = %d, want 0", remaining)
+	}
 }
 
 func TestLimiterWindowExpires(t *testing.T) {
@@ -79,7 +88,7 @@ func TestLimiterWindowExpires(t *testing.T) {
 	if _, err := l.Allow(ctx, "acct-1", FamilyVideoInit); err == nil {
 		t.Fatal("expected the sixth token plus one to be refused")
 	}
-	mr.FastForward(2 * time.Minute)
+	mr.FastForward(121 * time.Second)
 	remaining, err := l.Allow(ctx, "acct-1", FamilyVideoInit)
 	if err != nil {
 		t.Fatalf("Allow after window: %v", err)
@@ -132,6 +141,27 @@ func TestLimiterNilClientFailsClosedWithoutPanic(t *testing.T) {
 		wantError(t, err, apierror.CodeServiceUnavailable, "")
 	}
 	_, err := NewLimiter(nil, nil).Allow(context.Background(), "acct-1", FamilyListVideos)
+	if err != nil {
+		t.Fatalf("read family under a nil client = %v, want nil", err)
+	}
+}
+
+// TestLimiterNilLoggerDefaultsInsteadOfFailingClosed proves a missing logger
+// falls back to the default logger rather than being read as a Redis outage.
+func TestLimiterNilLoggerDefaultsInsteadOfFailingClosed(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	remaining, err := NewLimiter(client, nil).Allow(context.Background(), "acct-1", FamilyVideoInit)
+	if err != nil {
+		t.Fatalf("publish family under a nil logger = %v, want allowed", err)
+	}
+	if remaining != 5 {
+		t.Fatalf("remaining = %d, want 5", remaining)
+	}
+	_, err = NewLimiter(nil, nil).Allow(context.Background(), "acct-1", FamilyVideoInit)
+	wantError(t, err, apierror.CodeServiceUnavailable, "")
+	_, err = NewLimiter(nil, nil).Allow(context.Background(), "acct-1", FamilyListVideos)
 	if err != nil {
 		t.Fatalf("read family under a nil client = %v, want nil", err)
 	}

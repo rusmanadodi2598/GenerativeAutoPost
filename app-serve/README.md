@@ -29,3 +29,9 @@ the service imports `net/http` server helpers; business logic stays in
 cp .env.example .env
 go run ./cmd/app-serve
 ```
+
+## Testing
+
+Tests use `github.com/alicebob/miniredis/v2` as a test-only dependency for the
+Redis rate limiter: it runs the real Lua script and exercises window expiry,
+which a hand-rolled fake would not.

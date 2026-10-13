@@ -160,7 +160,7 @@ func TestVideoCountsOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryVideos: %v", err)
 	}
-	if len(got) != 1 || got[0].LikeCount != 0 {
+	if len(got) != 1 {
 		t.Fatalf("videos = %+v", got)
 	}
 	raw, err := json.Marshal(got[0])

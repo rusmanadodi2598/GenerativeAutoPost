@@ -62,8 +62,12 @@ type Limiter struct {
 	logger *slog.Logger
 }
 
-// NewLimiter builds a limiter over the shared Redis client.
+// NewLimiter builds a limiter over the shared Redis client. A nil logger
+// defaults to slog.Default so a wiring mistake is not read as a Redis outage.
 func NewLimiter(client *redis.Client, logger *slog.Logger) *Limiter {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Limiter{client: client, logger: logger}
 }
 
@@ -74,7 +78,7 @@ func (l *Limiter) Allow(ctx context.Context, accountID string, family Family) (i
 	if !ok {
 		return 0, apierror.New(apierror.CodeTikTokInvalidParam, 0, "Unknown rate limit family.")
 	}
-	if l == nil || l.client == nil || l.logger == nil {
+	if l == nil || l.client == nil {
 		return l.unavailable(family, limit, nil)
 	}
 	count, err := incrWindow.Run(ctx, l.client, []string{windowKey(family, accountID)}).Int64()
