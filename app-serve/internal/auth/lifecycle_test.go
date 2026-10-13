@@ -41,6 +41,9 @@ func TestRefreshHappyPathStoresTokensAndReleasesLock(t *testing.T) {
 	if accounts.storeCalls != 1 || accounts.storeTokens != newTokens {
 		t.Fatalf("StoreTokens = %d calls with %+v, want 1 call with %+v", accounts.storeCalls, accounts.storeTokens, newTokens)
 	}
+	if accounts.storeOperator != testOperatorID || accounts.storeAccount != "acct-1" {
+		t.Fatalf("StoreTokens args = (%q, %q), want (%q, acct-1)", accounts.storeOperator, accounts.storeAccount, testOperatorID)
+	}
 	if locker.releaseCount() != 1 {
 		t.Fatalf("lock released %d times, want 1", locker.releaseCount())
 	}
@@ -119,6 +122,9 @@ func TestRefreshInvalidTokenMarksNeedsReauthOnce(t *testing.T) {
 	wantCode(t, err, apierror.CodeTikTokReauthRequired)
 	if accounts.needsReauth != 1 {
 		t.Fatalf("MarkNeedsReauth called %d times, want 1", accounts.needsReauth)
+	}
+	if accounts.needsOperator != testOperatorID || accounts.needsAccount != "acct-1" {
+		t.Fatalf("MarkNeedsReauth args = (%q, %q), want (%q, acct-1)", accounts.needsOperator, accounts.needsAccount, testOperatorID)
 	}
 	if refresher.refreshCount() != 1 {
 		t.Fatalf("RefreshToken called %d times, want 1 (no retry loop)", refresher.refreshCount())

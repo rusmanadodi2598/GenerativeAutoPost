@@ -42,8 +42,8 @@ type AccountUpserter interface {
 	// enforces that the account belongs to operatorID and denies by default,
 	// answering a foreign or unknown account with a not-found error.
 	RefreshMaterial(ctx context.Context, operatorID string, accountID string) (refreshToken string, accessToken string, err error)
-	StoreTokens(ctx context.Context, accountID string, tokens tiktokclient.TokenSet) error
-	MarkNeedsReauth(ctx context.Context, accountID string) error
+	StoreTokens(ctx context.Context, operatorID string, accountID string, tokens tiktokclient.TokenSet) error
+	MarkNeedsReauth(ctx context.Context, operatorID string, accountID string) error
 	MarkRevoked(ctx context.Context, operatorID string, accountID string) error
 }
 

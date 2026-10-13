@@ -55,8 +55,12 @@ type fakeUpserter struct {
 	materialAccount  string
 	storeTokens      tiktokclient.TokenSet
 	storeCalls       int
+	storeOperator    string
+	storeAccount     string
 	storeErr         error
 	needsReauth      int
+	needsOperator    string
+	needsAccount     string
 	revoked          int
 	revokeOperator   string
 	revokeAccount    string
@@ -78,14 +82,18 @@ func (f *fakeUpserter) RefreshMaterial(_ context.Context, operatorID string, acc
 	return f.refreshToken, f.accessToken, f.materialErr
 }
 
-func (f *fakeUpserter) StoreTokens(_ context.Context, _ string, tokens tiktokclient.TokenSet) error {
+func (f *fakeUpserter) StoreTokens(_ context.Context, operatorID string, accountID string, tokens tiktokclient.TokenSet) error {
 	f.storeCalls++
+	f.storeOperator = operatorID
+	f.storeAccount = accountID
 	f.storeTokens = tokens
 	return f.storeErr
 }
 
-func (f *fakeUpserter) MarkNeedsReauth(_ context.Context, _ string) error {
+func (f *fakeUpserter) MarkNeedsReauth(_ context.Context, operatorID string, accountID string) error {
 	f.needsReauth++
+	f.needsOperator = operatorID
+	f.needsAccount = accountID
 	return f.markErr
 }
 

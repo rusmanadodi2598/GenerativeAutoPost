@@ -23,30 +23,44 @@ import (
 // defaultKeyID is used when the composition root sets no explicit key id.
 const defaultKeyID = "primary"
 
+// maxTokenSeconds caps a token lifetime at 30 days. A larger value means the
+// upstream response is malformed, so the write is refused rather than trusted.
+const maxTokenSeconds = 30 * 24 * 3600
+
 // Service encrypts TikTok token material before it reaches the store and
 // decrypts it only for the auth flow.
 type Service struct {
 	store   Store
 	keyring *crypto.Keyring
 	logger  *slog.Logger
-	KeyID   string
+	keyID   string
 }
 
-// NewService wires the token vault. A nil logger falls back to slog.Default so
-// a wiring mistake is not read as a storage outage.
-func NewService(store Store, keyring *crypto.Keyring, logger *slog.Logger) *Service {
+// NewService wires the token vault. keyID is fixed at construction: an empty
+// value falls back to "primary". A nil logger falls back to slog.Default so a
+// wiring mistake is not read as a storage outage.
+func NewService(store Store, keyring *crypto.Keyring, keyID string, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{store: store, keyring: keyring, logger: logger}
+	if keyID == "" {
+		keyID = defaultKeyID
+	}
+	return &Service{store: store, keyring: keyring, keyID: keyID, logger: logger}
 }
 
-// keyID returns the configured key id or the default.
-func (s *Service) keyID() string {
-	if s.KeyID == "" {
-		return defaultKeyID
+// tokenExpiries validates the lifetime pair and turns it into absolute
+// expiries. A zero or negative value, a refresh lifetime shorter than the
+// access lifetime, or a value past the ceiling is a validation failure.
+func tokenExpiries(tokens tiktokclient.TokenSet) (accessExp, refreshExp time.Time, err error) {
+	if tokens.ExpiresIn <= 0 || tokens.ExpiresIn > maxTokenSeconds {
+		return time.Time{}, time.Time{}, apierror.New(apierror.CodeValidationFailed, 0, "Expires in must be between 1 and 2592000 seconds.")
 	}
-	return s.KeyID
+	if tokens.RefreshExpiresIn < tokens.ExpiresIn || tokens.RefreshExpiresIn > maxTokenSeconds {
+		return time.Time{}, time.Time{}, apierror.New(apierror.CodeValidationFailed, 0, "Refresh expires in must be between the access expiry and 2592000 seconds.")
+	}
+	now := time.Now().UTC()
+	return now.Add(time.Duration(tokens.ExpiresIn) * time.Second), now.Add(time.Duration(tokens.RefreshExpiresIn) * time.Second), nil
 }
 
 // errTokenEncrypt is the client safe answer for a failed seal. The cause stays
@@ -62,11 +76,11 @@ func errTokenDecrypt(cause error) *apierror.Error {
 
 // encryptPair seals the access and refresh tokens under the vault key.
 func (s *Service) encryptPair(ctx context.Context, tokens tiktokclient.TokenSet) (accessEnc, refreshEnc []byte, err error) {
-	accessEnc, _, err = s.keyring.Encrypt(ctx, []byte(tokens.AccessToken), s.keyID())
+	accessEnc, _, err = s.keyring.Encrypt(ctx, []byte(tokens.AccessToken), s.keyID)
 	if err != nil {
 		return nil, nil, errTokenEncrypt(err)
 	}
-	refreshEnc, _, err = s.keyring.Encrypt(ctx, []byte(tokens.RefreshToken), s.keyID())
+	refreshEnc, _, err = s.keyring.Encrypt(ctx, []byte(tokens.RefreshToken), s.keyID)
 	if err != nil {
 		return nil, nil, errTokenEncrypt(err)
 	}
@@ -77,21 +91,24 @@ func (s *Service) encryptPair(ctx context.Context, tokens tiktokclient.TokenSet)
 // A repeat callback for the same open id updates the existing row and returns
 // its id, so the OAuth flow is idempotent.
 func (s *Service) UpsertAccount(ctx context.Context, operatorID string, tokens tiktokclient.TokenSet, grantedScopes []string) (string, error) {
+	accessExp, refreshExp, err := tokenExpiries(tokens)
+	if err != nil {
+		return "", err
+	}
 	accessEnc, refreshEnc, err := s.encryptPair(ctx, tokens)
 	if err != nil {
 		return "", err
 	}
-	now := time.Now().UTC()
 	rec := Record{
 		OperatorID:    operatorID,
 		OpenID:        tokens.OpenID,
 		Scopes:        copyStrings(grantedScopes),
 		AccessEnc:     accessEnc,
-		AccessExpiry:  now.Add(time.Duration(tokens.ExpiresIn) * time.Second),
+		AccessExpiry:  accessExp,
 		RefreshEnc:    refreshEnc,
-		RefreshExpiry: now.Add(time.Duration(tokens.RefreshExpiresIn) * time.Second),
-		KeyID:         s.keyID(),
-		CreatedAt:     now,
+		RefreshExpiry: refreshExp,
+		KeyID:         s.keyID,
+		CreatedAt:     time.Now().UTC(),
 	}
 	stored, err := s.store.UpsertEncrypted(ctx, rec)
 	if err != nil {
@@ -122,26 +139,49 @@ func (s *Service) RefreshMaterial(ctx context.Context, operatorID string, accoun
 	return string(refresh), string(access), nil
 }
 
-// StoreTokens seals and persists a freshly rotated token pair. Ownership is
-// enforced by the auth flow before this call, matching the store contract.
-func (s *Service) StoreTokens(ctx context.Context, accountID string, tokens tiktokclient.TokenSet) error {
+// StoreTokens rotates the token pair of one account through the aggregate.
+// The read is ownership checked, so a foreign or unknown account never reaches
+// the write. A revoked account or an invalid expiry fails before the store is
+// touched, and the persisted bytes come from the aggregate.
+func (s *Service) StoreTokens(ctx context.Context, operatorID string, accountID string, tokens tiktokclient.TokenSet) error {
+	rec, err := s.store.GetOwned(ctx, operatorID, accountID)
+	if err != nil {
+		return err
+	}
+	accessExp, refreshExp, err := tokenExpiries(tokens)
+	if err != nil {
+		return err
+	}
 	accessEnc, refreshEnc, err := s.encryptPair(ctx, tokens)
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	accessExp := now.Add(time.Duration(tokens.ExpiresIn) * time.Second)
-	refreshExp := now.Add(time.Duration(tokens.RefreshExpiresIn) * time.Second)
-	if err := s.store.UpdateTokens(ctx, accountID, accessEnc, refreshEnc, s.keyID(), accessExp, refreshExp); err != nil {
+	acc := newAccount(rec)
+	if err := acc.RotateTokens(accessEnc, refreshEnc, s.keyID, accessExp, refreshExp); err != nil {
+		return err
+	}
+	accessStored, storedKey := acc.EncryptedAccess()
+	refreshStored, _ := acc.EncryptedRefresh()
+	if err := s.store.UpdateTokens(ctx, accountID, accessStored, refreshStored, storedKey, accessExp, refreshExp); err != nil {
 		return err
 	}
 	s.logger.DebugContext(ctx, "tiktok account tokens rotated", "account_id", accountID)
 	return nil
 }
 
-// MarkNeedsReauth flags the account so the UI can ask for a new sign in.
-func (s *Service) MarkNeedsReauth(ctx context.Context, accountID string) error {
-	return s.store.SetNeedsReauth(ctx, accountID, true)
+// MarkNeedsReauth flags the account so the UI can ask for a new sign in. The
+// ownership-checked read runs first, so a foreign operator gets the store's
+// not-found answer and no write.
+func (s *Service) MarkNeedsReauth(ctx context.Context, operatorID string, accountID string) error {
+	rec, err := s.store.GetOwned(ctx, operatorID, accountID)
+	if err != nil {
+		return err
+	}
+	acc := newAccount(rec)
+	if err := acc.MarkNeedsReauth(); err != nil {
+		return err
+	}
+	return s.store.SetNeedsReauth(ctx, accountID, acc.NeedsReauth())
 }
 
 // MarkRevoked checks ownership, then stamps the revoke time. A foreign or

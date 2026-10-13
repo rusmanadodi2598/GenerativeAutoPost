@@ -30,6 +30,7 @@ const (
 
 // tokenUpdate captures one UpdateTokens call for assertions.
 type tokenUpdate struct {
+	accountID  string
 	accessEnc  []byte
 	refreshEnc []byte
 	keyID      string
@@ -45,11 +46,10 @@ type fakeStore struct {
 	updates []tokenUpdate
 
 	upsertErr error
-	getErr    error
-	updateErr error
-	needsErr  error
-	revokeErr error
+	writeErr  error
 
+	getCalls    int
+	getOperator string
 	needsCalls  map[string]bool
 	revokeCalls []string
 }
@@ -76,9 +76,8 @@ func (f *fakeStore) UpsertEncrypted(_ context.Context, rec Record) (Record, erro
 func (f *fakeStore) GetOwned(_ context.Context, operatorID string, accountID string) (Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.getErr != nil {
-		return Record{}, f.getErr
-	}
+	f.getCalls++
+	f.getOperator = operatorID
 	for _, rec := range f.records {
 		if rec.ID == accountID && rec.OperatorID == operatorID {
 			return rec, nil
@@ -87,33 +86,40 @@ func (f *fakeStore) GetOwned(_ context.Context, operatorID string, accountID str
 	return Record{}, errTestNotFound
 }
 
-func (f *fakeStore) UpdateTokens(_ context.Context, _ string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error {
+func (f *fakeStore) UpdateTokens(_ context.Context, accountID string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.updateErr != nil {
-		return f.updateErr
+	if f.writeErr != nil {
+		return f.writeErr
 	}
-	f.updates = append(f.updates, tokenUpdate{accessEnc, refreshEnc, keyID, accessExp, refreshExp})
+	f.updates = append(f.updates, tokenUpdate{accountID, accessEnc, refreshEnc, keyID, accessExp, refreshExp})
 	return nil
 }
 
 func (f *fakeStore) SetNeedsReauth(_ context.Context, accountID string, needs bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.needsErr != nil {
-		return f.needsErr
+	if f.writeErr != nil {
+		return f.writeErr
 	}
 	f.needsCalls[accountID] = needs
 	return nil
 }
 
-func (f *fakeStore) SetRevoked(_ context.Context, accountID string, _ time.Time) error {
+func (f *fakeStore) SetRevoked(_ context.Context, accountID string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.revokeErr != nil {
-		return f.revokeErr
+	if f.writeErr != nil {
+		return f.writeErr
 	}
 	f.revokeCalls = append(f.revokeCalls, accountID)
+	stamp := at.UTC()
+	for openID, rec := range f.records {
+		if rec.ID == accountID {
+			rec.RevokedAt = &stamp
+			f.records[openID] = rec
+		}
+	}
 	return nil
 }
 
@@ -128,7 +134,7 @@ func newTestService(t *testing.T) (*Service, *fakeStore) {
 		t.Fatalf("NewKeyring: %v", err)
 	}
 	store := newFakeStore()
-	return NewService(store, keyring, discardLogger()), store
+	return NewService(store, keyring, defaultKeyID, discardLogger()), store
 }
 
 func discardLogger() *slog.Logger {

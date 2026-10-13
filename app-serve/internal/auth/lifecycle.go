@@ -80,13 +80,13 @@ func (s *Service) Refresh(ctx context.Context, operatorID string, accountID stri
 	tokens, err := s.refresher.RefreshToken(ctx, refreshToken)
 	if err != nil {
 		if isReauthRequired(err) {
-			if markErr := s.accounts.MarkNeedsReauth(ctx, accountID); markErr != nil {
+			if markErr := s.accounts.MarkNeedsReauth(ctx, operatorID, accountID); markErr != nil {
 				s.logger.WarnContext(ctx, "marking account needs reauth", "account_id", accountID, "error", markErr)
 			}
 		}
 		return err
 	}
-	return s.accounts.StoreTokens(ctx, accountID, tokens)
+	return s.accounts.StoreTokens(ctx, operatorID, accountID, tokens)
 }
 
 // Revoke invalidates the TikTok credentials and clears the local token state.

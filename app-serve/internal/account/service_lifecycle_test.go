@@ -50,12 +50,28 @@ func TestGetOwned_PropagatesForeignDenial(t *testing.T) {
 
 func TestMarkNeedsReauth_DelegatesTrue(t *testing.T) {
 	svc, store := newTestService(t)
-	if err := svc.MarkNeedsReauth(context.Background(), "acct-open-1"); err != nil {
+	if _, err := svc.UpsertAccount(context.Background(), "op-1", testTokens(), nil); err != nil {
+		t.Fatalf("UpsertAccount: %v", err)
+	}
+	if err := svc.MarkNeedsReauth(context.Background(), "op-1", "acct-open-1"); err != nil {
 		t.Fatalf("MarkNeedsReauth: %v", err)
 	}
 	got, ok := store.needsCalls["acct-open-1"]
 	if !ok || !got {
 		t.Errorf("SetNeedsReauth call = (%v, %v), want (true, true)", got, ok)
+	}
+}
+
+func TestMarkNeedsReauth_ForeignOperatorPropagatesNotFound(t *testing.T) {
+	svc, store := newTestService(t)
+	if _, err := svc.UpsertAccount(context.Background(), "op-1", testTokens(), nil); err != nil {
+		t.Fatalf("UpsertAccount: %v", err)
+	}
+	if err := svc.MarkNeedsReauth(context.Background(), "op-2", "acct-open-1"); err != errTestNotFound {
+		t.Fatalf("err = %v, want the store denial unchanged", err)
+	}
+	if len(store.needsCalls) != 0 {
+		t.Errorf("SetNeedsReauth ran for a foreign operator: %v", store.needsCalls)
 	}
 }
 
@@ -96,18 +112,30 @@ func TestUpsertAccount_StoreFailurePropagates(t *testing.T) {
 
 func TestStoreTokens_EncryptsBeforeUpdate(t *testing.T) {
 	svc, store := newTestService(t)
-	if err := svc.StoreTokens(context.Background(), "acct-open-1", testTokens()); err != nil {
+	if _, err := svc.UpsertAccount(context.Background(), "op-1", testTokens(), nil); err != nil {
+		t.Fatalf("UpsertAccount: %v", err)
+	}
+	if err := svc.StoreTokens(context.Background(), "op-1", "acct-open-1", testTokens()); err != nil {
 		t.Fatalf("StoreTokens: %v", err)
 	}
 	if len(store.updates) != 1 {
 		t.Fatalf("UpdateTokens calls = %d, want 1", len(store.updates))
 	}
 	got := store.updates[0]
+	if got.accountID != "acct-open-1" {
+		t.Errorf("UpdateTokens accountID = %q, want acct-open-1", got.accountID)
+	}
+	if !bytes.Contains(got.accessEnc, []byte(defaultKeyID)) {
+		t.Error("stored access ciphertext is missing the key id prefix")
+	}
 	if bytes.Contains(got.accessEnc, []byte(testAccess)) || bytes.Contains(got.refreshEnc, []byte(testRefresh)) {
 		t.Error("stored ciphertext contains the plaintext token")
 	}
 	if got.keyID != defaultKeyID {
 		t.Errorf("keyID = %q, want %q", got.keyID, defaultKeyID)
+	}
+	if store.getCalls != 1 || store.getOperator != "op-1" {
+		t.Errorf("GetOwned calls = %d with operator %q, want 1 with op-1", store.getCalls, store.getOperator)
 	}
 }
 
@@ -118,7 +146,7 @@ func TestService_LogsNeverContainTokenMaterial(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	svc := NewService(newFakeStore(), keyring, logger)
+	svc := NewService(newFakeStore(), keyring, defaultKeyID, logger)
 
 	if _, err := svc.UpsertAccount(context.Background(), "op-1", testTokens(), nil); err != nil {
 		t.Fatalf("UpsertAccount: %v", err)
@@ -126,7 +154,7 @@ func TestService_LogsNeverContainTokenMaterial(t *testing.T) {
 	if _, _, err := svc.RefreshMaterial(context.Background(), "op-1", "acct-open-1"); err != nil {
 		t.Fatalf("RefreshMaterial: %v", err)
 	}
-	if err := svc.StoreTokens(context.Background(), "acct-open-1", testTokens()); err != nil {
+	if err := svc.StoreTokens(context.Background(), "op-1", "acct-open-1", testTokens()); err != nil {
 		t.Fatalf("StoreTokens: %v", err)
 	}
 	if logs := buf.String(); bytes.Contains([]byte(logs), []byte(testAccess)) || bytes.Contains([]byte(logs), []byte(testRefresh)) {

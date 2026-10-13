@@ -15,14 +15,6 @@ import (
 	"time"
 )
 
-// TokenMaterial carries the plaintext token pair with both expiries.
-type TokenMaterial struct {
-	AccessToken   string
-	RefreshToken  string
-	AccessExpiry  time.Time
-	RefreshExpiry time.Time
-}
-
 // View is the client facing projection of an account, tokens excluded.
 type View struct {
 	ID          string    `json:"id"`
