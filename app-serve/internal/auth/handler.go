@@ -86,11 +86,16 @@ func (h *Handler) Authorize(c *gin.Context) {
 
 // Refresh rotates the TikTok tokens of one account.
 func (h *Handler) Refresh(c *gin.Context) {
+	sess, ok := SessionFrom(c)
+	if !ok {
+		writeError(c, errNoSession())
+		return
+	}
 	req, ok := bindAccount(c)
 	if !ok {
 		return
 	}
-	if err := h.svc.Refresh(c.Request.Context(), req.AccountID); err != nil {
+	if err := h.svc.Refresh(c.Request.Context(), sess.OperatorID, req.AccountID); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -99,11 +104,16 @@ func (h *Handler) Refresh(c *gin.Context) {
 
 // Revoke invalidates the TikTok credentials of one account.
 func (h *Handler) Revoke(c *gin.Context) {
+	sess, ok := SessionFrom(c)
+	if !ok {
+		writeError(c, errNoSession())
+		return
+	}
 	req, ok := bindAccount(c)
 	if !ok {
 		return
 	}
-	if err := h.svc.Revoke(c.Request.Context(), req.AccountID); err != nil {
+	if err := h.svc.Revoke(c.Request.Context(), sess.OperatorID, req.AccountID); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -114,7 +124,7 @@ func (h *Handler) Revoke(c *gin.Context) {
 func (h *Handler) Logout(c *gin.Context) {
 	sess, ok := SessionFrom(c)
 	if !ok {
-		writeError(c, apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
+		writeError(c, errNoSession())
 		return
 	}
 	if err := h.svc.Logout(c.Request.Context(), sess.ID); err != nil {
@@ -129,7 +139,7 @@ func (h *Handler) Logout(c *gin.Context) {
 func (h *Handler) Session(c *gin.Context) {
 	sess, ok := SessionFrom(c)
 	if !ok {
-		writeError(c, apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
+		writeError(c, errNoSession())
 		return
 	}
 	h.writeSuccess(c, http.StatusOK, sessionView{SessionResponse{
@@ -137,6 +147,12 @@ func (h *Handler) Session(c *gin.Context) {
 		Scopes:     sess.Scopes,
 		ExpiresAt:  h.expiresAt(sess.CreatedAt),
 	}})
+}
+
+// errNoSession is the client safe answer when a guarded route runs without
+// an attached session, so a wiring mistake still denies instead of panicking.
+func errNoSession() *apierror.Error {
+	return apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue.")
 }
 
 // writeSuccess writes the success envelope with fresh request metadata.

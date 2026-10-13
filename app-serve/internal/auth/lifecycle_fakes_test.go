@@ -47,15 +47,20 @@ type fakeUpserter struct {
 	err        error
 	calls      int
 
-	refreshToken string
-	accessToken  string
-	materialErr  error
-	storeTokens  tiktokclient.TokenSet
-	storeCalls   int
-	storeErr     error
-	needsReauth  int
-	revoked      int
-	markErr      error
+	refreshToken     string
+	accessToken      string
+	materialErr      error
+	materialCalls    int
+	materialOperator string
+	materialAccount  string
+	storeTokens      tiktokclient.TokenSet
+	storeCalls       int
+	storeErr         error
+	needsReauth      int
+	revoked          int
+	revokeOperator   string
+	revokeAccount    string
+	markErr          error
 }
 
 func (f *fakeUpserter) UpsertAccount(_ context.Context, operatorID string, tokens tiktokclient.TokenSet, grantedScopes []string) (string, error) {
@@ -66,7 +71,10 @@ func (f *fakeUpserter) UpsertAccount(_ context.Context, operatorID string, token
 	return f.id, f.err
 }
 
-func (f *fakeUpserter) RefreshMaterial(_ context.Context, _ string) (string, string, error) {
+func (f *fakeUpserter) RefreshMaterial(_ context.Context, operatorID string, accountID string) (string, string, error) {
+	f.materialCalls++
+	f.materialOperator = operatorID
+	f.materialAccount = accountID
 	return f.refreshToken, f.accessToken, f.materialErr
 }
 
@@ -81,8 +89,10 @@ func (f *fakeUpserter) MarkNeedsReauth(_ context.Context, _ string) error {
 	return f.markErr
 }
 
-func (f *fakeUpserter) MarkRevoked(_ context.Context, _ string) error {
+func (f *fakeUpserter) MarkRevoked(_ context.Context, operatorID string, accountID string) error {
 	f.revoked++
+	f.revokeOperator = operatorID
+	f.revokeAccount = accountID
 	return f.markErr
 }
 
@@ -94,6 +104,7 @@ type fakeRefresher struct {
 	refreshErr   error
 	revokeErr    error
 	gate         chan struct{}
+	cancel       func()
 	refreshCalls int
 	refreshArg   string
 	revokeCalls  int
@@ -105,7 +116,11 @@ func (f *fakeRefresher) RefreshToken(_ context.Context, refresh string) (tiktokc
 	f.refreshCalls++
 	f.refreshArg = refresh
 	gate := f.gate
+	cancel := f.cancel
 	f.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if gate != nil {
 		<-gate
 	}
@@ -172,6 +187,25 @@ func (f *fakeLocker) releaseCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.released)
+}
+
+// recordingLocker captures the context state each Release runs under, so a
+// test can prove the detached release still lands after the caller cancels.
+type recordingLocker struct {
+	releaseErr    error
+	releaseCalls  int
+	releaseCtxErr error
+}
+
+func (l *recordingLocker) Acquire(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (l *recordingLocker) Release(ctx context.Context, _ string) error {
+	l.releaseCalls++
+	// Snapshot Err inside the call: the service cancels the context on return.
+	l.releaseCtxErr = ctx.Err()
+	return l.releaseErr
 }
 
 // newLifecycleService wires a service with the supplied lifecycle fakes.

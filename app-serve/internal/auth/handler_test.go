@@ -34,11 +34,13 @@ const (
 )
 
 // httpHarness bundles the router under test with the stores its endpoints
-// mutate.
+// mutate, plus the account fake the refresh routes read.
 type httpHarness struct {
-	router   *gin.Engine
-	svc      *Service
-	sessions *SessionStore
+	router    *gin.Engine
+	svc       *Service
+	sessions  *SessionStore
+	accounts  *fakeUpserter
+	refresher *fakeRefresher
 }
 
 // newHTTPHarness wires one service behind a real Gin router.
@@ -52,7 +54,10 @@ func newHTTPHarness(t *testing.T) *httpHarness {
 		RefreshToken: "refresh-1",
 		Scope:        testScopes,
 	}}
-	upserter := &fakeUpserter{id: "acct-1"}
+	// The refresh route needs material to succeed; the fake returns it by
+	// default so the happy path reaches the token store instead of denying.
+	upserter := &fakeUpserter{id: "acct-1", refreshToken: "refresh-1", accessToken: "access-1"}
+	refresher := &fakeRefresher{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := ServiceConfig{
 		ClientKey:   testClientKey,
@@ -60,10 +65,21 @@ func newHTTPHarness(t *testing.T) *httpHarness {
 		Scopes:      testScopes,
 		OperatorID:  testOperatorID,
 	}
-	svc := NewService(cfg, exchanger, &fakeRefresher{}, upserter, states, sessions, newFakeLocker(), logger)
+	svc := NewService(cfg, exchanger, refresher, upserter, states, sessions, newFakeLocker(), logger)
 	router := gin.New()
+	// The request id middleware stands in for the platform one, so the success
+	// envelope carries a populated request_id in the route tests.
+	router.Use(requestIDMiddleware())
 	RegisterRoutes(router, svc, sessions, RouterConfig{CookieName: constCookie, CookieTTL: time.Hour})
-	return &httpHarness{router: router, svc: svc, sessions: sessions}
+	return &httpHarness{router: router, svc: svc, sessions: sessions, accounts: upserter, refresher: refresher}
+}
+
+// requestIDMiddleware sets the request_id context key the envelope reads.
+func requestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set("request_id", "test-request-id")
+		c.Next()
+	}
 }
 
 // serve runs one request through the harness router.

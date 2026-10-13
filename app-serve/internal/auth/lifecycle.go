@@ -50,9 +50,11 @@ func isReauthRequired(err error) bool {
 }
 
 // Refresh rotates the TikTok tokens of one account behind a per-account lock.
-// A reauth failure marks the account and returns at once; there is no retry
-// loop, because a rejected refresh token stays rejected.
-func (s *Service) Refresh(ctx context.Context, accountID string) error {
+// The store enforces that the account belongs to operatorID; a denial is
+// propagated unchanged and no token call is made. A reauth failure marks the
+// account and returns at once; there is no retry loop, because a rejected
+// refresh token stays rejected.
+func (s *Service) Refresh(ctx context.Context, operatorID string, accountID string) error {
 	key := refreshLockKey(accountID)
 	acquired, err := s.locker.Acquire(ctx, key, s.lockTTL())
 	if err != nil {
@@ -61,13 +63,17 @@ func (s *Service) Refresh(ctx context.Context, accountID string) error {
 	if !acquired {
 		return errRefreshInFlight()
 	}
+	// Release on a detached context: a cancelled caller must not skip the DEL
+	// and leave the key to its TTL, which would answer the next refresh 409.
 	defer func() {
-		if relErr := s.locker.Release(ctx, key); relErr != nil {
-			s.logger.WarnContext(ctx, "releasing refresh lock", "account_id", accountID, "error", relErr)
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		if relErr := s.locker.Release(rctx, key); relErr != nil {
+			s.logger.WarnContext(rctx, "releasing refresh lock", "account_id", accountID, "error", relErr)
 		}
 	}()
 
-	refreshToken, _, err := s.accounts.RefreshMaterial(ctx, accountID)
+	refreshToken, _, err := s.accounts.RefreshMaterial(ctx, operatorID, accountID)
 	if err != nil {
 		return err
 	}
@@ -84,17 +90,19 @@ func (s *Service) Refresh(ctx context.Context, accountID string) error {
 }
 
 // Revoke invalidates the TikTok credentials and clears the local token state.
-// A failed upstream revoke is logged and dropped: the local record is cleared
-// regardless, so a dead token never lingers in our store.
-func (s *Service) Revoke(ctx context.Context, accountID string) error {
-	_, accessToken, err := s.accounts.RefreshMaterial(ctx, accountID)
+// The store enforces that the account belongs to operatorID; a denial is
+// propagated unchanged and no upstream call is made. A failed upstream revoke
+// is logged and dropped: the local record is cleared regardless, so a dead
+// token never lingers in our store.
+func (s *Service) Revoke(ctx context.Context, operatorID string, accountID string) error {
+	_, accessToken, err := s.accounts.RefreshMaterial(ctx, operatorID, accountID)
 	if err != nil {
 		return err
 	}
 	if err := s.refresher.Revoke(ctx, accessToken); err != nil {
 		s.logger.WarnContext(ctx, "revoking tiktok access token", "account_id", accountID, "error", err)
 	}
-	return s.accounts.MarkRevoked(ctx, accountID)
+	return s.accounts.MarkRevoked(ctx, operatorID, accountID)
 }
 
 // Logout deletes the operator session. A store failure is propagated so a

@@ -29,7 +29,7 @@ func TestRefreshHappyPathStoresTokensAndReleasesLock(t *testing.T) {
 	locker := newFakeLocker()
 	svc, _, _ := newLifecycleService(t, refresher, accounts, locker, nil)
 
-	if err := svc.Refresh(context.Background(), "acct-1"); err != nil {
+	if err := svc.Refresh(context.Background(), testOperatorID, "acct-1"); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 	if refresher.refreshCount() != 1 {
@@ -44,6 +44,9 @@ func TestRefreshHappyPathStoresTokensAndReleasesLock(t *testing.T) {
 	if locker.releaseCount() != 1 {
 		t.Fatalf("lock released %d times, want 1", locker.releaseCount())
 	}
+	if accounts.materialOperator != testOperatorID || accounts.materialAccount != "acct-1" {
+		t.Fatalf("RefreshMaterial args = (%q, %q), want (%q, acct-1)", accounts.materialOperator, accounts.materialAccount, testOperatorID)
+	}
 }
 
 func TestRefreshWhenLockHeldReturnsConflict(t *testing.T) {
@@ -53,7 +56,7 @@ func TestRefreshWhenLockHeldReturnsConflict(t *testing.T) {
 	locker.held[refreshLockKey("acct-1")] = true
 	svc, _, _ := newLifecycleService(t, refresher, accounts, locker, nil)
 
-	err := svc.Refresh(context.Background(), "acct-1")
+	err := svc.Refresh(context.Background(), testOperatorID, "acct-1")
 	wantCode(t, err, apierror.CodeConflict)
 	if refresher.refreshCount() != 0 {
 		t.Fatalf("RefreshToken ran %d times while the lock was held", refresher.refreshCount())
@@ -72,10 +75,10 @@ func TestRefreshSerializesConcurrentCallers(t *testing.T) {
 
 	first := make(chan error, 1)
 	second := make(chan error, 1)
-	go func() { first <- svc.Refresh(context.Background(), "acct-1") }()
+	go func() { first <- svc.Refresh(context.Background(), testOperatorID, "acct-1") }()
 	waitForLockHeld(t, locker)
 
-	go func() { second <- svc.Refresh(context.Background(), "acct-1") }()
+	go func() { second <- svc.Refresh(context.Background(), testOperatorID, "acct-1") }()
 	errSecond := <-second
 	wantCode(t, errSecond, apierror.CodeConflict)
 
@@ -112,7 +115,7 @@ func TestRefreshInvalidTokenMarksNeedsReauthOnce(t *testing.T) {
 	accounts := &fakeUpserter{refreshToken: "refresh-1"}
 	svc, _, _ := newLifecycleService(t, refresher, accounts, newFakeLocker(), nil)
 
-	err := svc.Refresh(context.Background(), "acct-1")
+	err := svc.Refresh(context.Background(), testOperatorID, "acct-1")
 	wantCode(t, err, apierror.CodeTikTokReauthRequired)
 	if accounts.needsReauth != 1 {
 		t.Fatalf("MarkNeedsReauth called %d times, want 1", accounts.needsReauth)
@@ -131,7 +134,7 @@ func TestRefreshLockAcquireErrorPropagates(t *testing.T) {
 	refresher := &fakeRefresher{}
 	svc, _, _ := newLifecycleService(t, refresher, &fakeUpserter{}, locker, nil)
 
-	err := svc.Refresh(context.Background(), "acct-1")
+	err := svc.Refresh(context.Background(), testOperatorID, "acct-1")
 	wantCode(t, err, apierror.CodeServiceUnavailable)
 	if refresher.refreshCount() != 0 {
 		t.Fatalf("RefreshToken ran %d times after a lock failure", refresher.refreshCount())
@@ -145,7 +148,7 @@ func TestRevokeClearsLocalStateWhenTikTokFails(t *testing.T) {
 	accounts := &fakeUpserter{accessToken: "access-1"}
 	svc, _, _ := newLifecycleService(t, refresher, accounts, newFakeLocker(), logger)
 
-	if err := svc.Revoke(context.Background(), "acct-1"); err != nil {
+	if err := svc.Revoke(context.Background(), testOperatorID, "acct-1"); err != nil {
 		t.Fatalf("Revoke = %v, want nil", err)
 	}
 	if refresher.revokeCount() != 1 {
@@ -156,6 +159,12 @@ func TestRevokeClearsLocalStateWhenTikTokFails(t *testing.T) {
 	}
 	if accounts.revoked != 1 {
 		t.Fatalf("MarkRevoked called %d times, want 1", accounts.revoked)
+	}
+	if accounts.materialOperator != testOperatorID || accounts.materialAccount != "acct-1" {
+		t.Fatalf("RefreshMaterial args = (%q, %q), want (%q, acct-1)", accounts.materialOperator, accounts.materialAccount, testOperatorID)
+	}
+	if accounts.revokeOperator != testOperatorID || accounts.revokeAccount != "acct-1" {
+		t.Fatalf("MarkRevoked args = (%q, %q), want (%q, acct-1)", accounts.revokeOperator, accounts.revokeAccount, testOperatorID)
 	}
 	if !bytes.Contains(logs.Bytes(), []byte("revoking tiktok access token")) {
 		t.Fatalf("revoke failure was not logged, got %q", logs.String())
@@ -170,7 +179,7 @@ func TestRevokeMarkRevokedFailureIsReturned(t *testing.T) {
 	}
 	svc, _, _ := newLifecycleService(t, refresher, accounts, newFakeLocker(), nil)
 
-	err := svc.Revoke(context.Background(), "acct-1")
+	err := svc.Revoke(context.Background(), testOperatorID, "acct-1")
 	wantCode(t, err, apierror.CodeServiceUnavailable)
 }
 
