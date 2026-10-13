@@ -12,8 +12,11 @@ package tiktokclient
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
@@ -65,5 +68,72 @@ func TestUploadChunkRejectsBadRange(t *testing.T) {
 			wantError(t, err, apierror.CodeTikTokInvalidParam, "")
 			wantHits(t, f, 0)
 		})
+	}
+}
+
+// TestUploadChunkRelativeURL proves a scheme-less upload URL joins the client base.
+func TestUploadChunkRelativeURL(t *testing.T) {
+	f := newFakeTikTok(t)
+	f.handle(uploadPath, fakeResponse{status: http.StatusOK, body: `{}`})
+	c := newTestClient(t, f)
+	err := c.UploadChunk(context.Background(), uploadPath, Chunk{Index: 0, First: 0, Last: 3, Total: 4, Data: []byte("abcd")})
+	if err != nil {
+		t.Fatalf("UploadChunk: %v", err)
+	}
+	wantHits(t, f, 1)
+}
+
+// TestUploadChunkRejectsNonHTTPScheme proves ftp and other schemes never reach the wire.
+func TestUploadChunkRejectsNonHTTPScheme(t *testing.T) {
+	f := newFakeTikTok(t)
+	f.handle(uploadPath, fakeResponse{status: http.StatusOK, body: `{}`})
+	c := newTestClient(t, f)
+	for _, raw := range []string{"ftp://upload.test/1", "file:///tmp/1"} {
+		err := c.UploadChunk(context.Background(), raw, Chunk{Index: 0, First: 0, Last: 3, Total: 4, Data: []byte("abcd")})
+		wantError(t, err, apierror.CodeTikTokInvalidParam, "")
+	}
+	wantHits(t, f, 0)
+}
+
+// TestChunkUploadTimeoutScalesWithPayload pins the 60s floor, 1s per MB, and 10m cap.
+func TestChunkUploadTimeoutScalesWithPayload(t *testing.T) {
+	tests := []struct {
+		size int64
+		want time.Duration
+	}{
+		{size: 4, want: 60 * time.Second},
+		{size: 5 << 20, want: 65 * time.Second},
+		{size: 64 << 20, want: 124 * time.Second},
+		{size: 1 << 30, want: 10 * time.Minute},
+	}
+	for _, tc := range tests {
+		if got := chunkUploadTimeout(tc.size); got != tc.want {
+			t.Fatalf("chunkUploadTimeout(%d) = %s, want %s", tc.size, got, tc.want)
+		}
+	}
+}
+
+// TestEndpointDeadlineIsTypedUnavailable proves our own per-call timeout maps to
+// the retryable unavailable code with the chunk detail, while parent cancellation
+// still surfaces as context.Canceled.
+func TestEndpointDeadlineIsTypedUnavailable(t *testing.T) {
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(slow.Close)
+	c := newTestClient(t, newFakeTikTok(t))
+	_, err := c.doEndpoint(context.Background(), http.MethodPut, slow.URL, nil, nil, "video/mp4", 20*time.Millisecond, "The upload to TikTok timed out.")
+	wantError(t, err, apierror.CodeTikTokUnavailable, "")
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) && apiErr.Detail != "The upload to TikTok timed out." {
+		t.Fatalf("detail = %q", apiErr.Detail)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = c.doEndpoint(ctx, http.MethodPut, slow.URL, nil, nil, "video/mp4", time.Second, "The upload to TikTok timed out.")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("parent cancellation err = %v, want context.Canceled", err)
 	}
 }

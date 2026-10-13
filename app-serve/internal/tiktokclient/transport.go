@@ -27,8 +27,18 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
-// requestTimeout bounds one outbound call, derived from the caller context.
+// requestTimeout bounds one JSON API call, derived from the caller context.
 const requestTimeout = 15 * time.Second
+
+// chunkUploadTimeout scales the upload deadline to the payload; 002 section 4.4
+// permits chunks between 5 MB and 64 MB, so allow 1s per MB on top of a 60s floor.
+func chunkUploadTimeout(size int64) time.Duration {
+	timeout := 60*time.Second + time.Duration(size/(1<<20))*time.Second
+	if timeout > 10*time.Minute {
+		return 10 * time.Minute
+	}
+	return timeout
+}
 
 // maxAttempts caps retries for network errors, 429, and 5xx responses.
 const maxAttempts = 3
@@ -49,12 +59,13 @@ func (c *Client) baseURL() string {
 
 // do runs a request with bounded retries and maps failures to typed errors.
 func (c *Client) do(ctx context.Context, method, path string, headers map[string]string, body io.Reader, contentType string) ([]byte, error) {
-	return c.doEndpoint(ctx, method, c.baseURL()+path, headers, body, contentType)
+	return c.doEndpoint(ctx, method, c.baseURL()+path, headers, body, contentType, requestTimeout, "")
 }
 
 // doEndpoint is do against an already assembled absolute endpoint; chunk uploads
-// leave the API host this way without duplicating the retry loop.
-func (c *Client) doEndpoint(ctx context.Context, method, endpoint string, headers map[string]string, body io.Reader, contentType string) ([]byte, error) {
+// leave the API host this way without duplicating the retry loop. deadlineDetail
+// labels our own per-call timeout when the caller context is still live.
+func (c *Client) doEndpoint(ctx context.Context, method, endpoint string, headers map[string]string, body io.Reader, contentType string, timeout time.Duration, deadlineDetail string) ([]byte, error) {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -64,11 +75,17 @@ func (c *Client) doEndpoint(ctx context.Context, method, endpoint string, header
 		}
 	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		reqCtx, cancel := context.WithTimeout(ctx, timeout)
 		res, err := c.send(reqCtx, method, endpoint, bodyReader(payload), headers, contentType)
 		cancel()
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if attempt == maxAttempts {
+				if errors.Is(err, context.DeadlineExceeded) && deadlineDetail != "" {
+					return nil, apierror.New(apierror.CodeTikTokUnavailable, 0, deadlineDetail).Wrap(err)
+				}
 				return nil, apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is temporarily unavailable. Try again shortly.").Wrap(err)
 			}
 			if sleepErr := sleepBackoff(ctx, attempt, ""); sleepErr != nil {

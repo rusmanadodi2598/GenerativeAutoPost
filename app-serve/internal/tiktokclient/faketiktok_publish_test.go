@@ -1,8 +1,8 @@
 // Package tiktokclient_test extends the scripted TikTok server for publish calls.
 //
 // @file      internal/tiktokclient/faketiktok_publish_test.go
-// @for       Publish endpoint paths and chunk capture helpers on the fake server.
-// @uses      net/http, testing
+// @for       Publish endpoint path constants the fake server routes.
+// @uses      none (path constants only)
 // @reason    Keeps publish fixtures out of the already long faketiktok_test.go.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service

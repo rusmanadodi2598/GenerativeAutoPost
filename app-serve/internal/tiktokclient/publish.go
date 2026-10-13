@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -98,20 +99,28 @@ func (c *Client) InitDraftUpload(ctx context.Context, access string, req DraftIn
 	return out, nil
 }
 
-// UploadChunk PUTs one byte range to the absolute upload URL TikTok returned.
+// UploadChunk PUTs one byte range to the upload URL TikTok returned. The URL may
+// be absolute or relative to the API host; anything not http(s) is rejected.
 func (c *Client) UploadChunk(ctx context.Context, uploadURL string, chunk Chunk) error {
 	if !chunk.valid() {
 		return apierror.New(apierror.CodeTikTokInvalidParam, 0, "The upload chunk range is invalid.")
 	}
 	endpoint := uploadURL
-	if !strings.HasPrefix(uploadURL, "http") {
+	parsed, err := url.Parse(uploadURL)
+	if err != nil {
+		return apierror.New(apierror.CodeTikTokInvalidParam, 0, "The upload URL is invalid.")
+	}
+	if !parsed.IsAbs() {
 		endpoint = c.baseURL() + uploadURL
+	} else if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
+		return apierror.New(apierror.CodeTikTokInvalidParam, 0, "The upload URL scheme is not supported.")
 	}
 	headers := map[string]string{
 		"Content-Range":  chunk.ContentRange(),
 		"Content-Length": strconv.Itoa(len(chunk.Data)),
 	}
-	_, err := c.doEndpoint(ctx, http.MethodPut, endpoint, headers, bytes.NewReader(chunk.Data), chunk.ContentType)
+	_, err = c.doEndpoint(ctx, http.MethodPut, endpoint, headers, bytes.NewReader(chunk.Data), chunk.ContentType,
+		chunkUploadTimeout(int64(len(chunk.Data))), "The upload to TikTok timed out.")
 	return err
 }
 

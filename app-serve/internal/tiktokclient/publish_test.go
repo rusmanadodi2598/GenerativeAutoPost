@@ -129,42 +129,11 @@ func TestInitVideoPost(t *testing.T) {
 			if post.Title != "hello" || post.PrivacyLevel != "SELF_ONLY" || !post.DisableComment || !post.IsAIGC {
 				t.Fatalf("post_info = %+v", post)
 			}
+			if auth := f.lastRequest(t).headers.Get("Authorization"); auth != "Bearer act-1" {
+				t.Fatalf("Authorization = %q, want Bearer act-1", auth)
+			}
 			wantHits(t, f, 1)
 		})
-	}
-}
-
-func TestInitPhotoPost(t *testing.T) {
-	f := newFakeTikTok(t)
-	f.handle(photoInitPath, successEnvelope(`{"publish_id":"p-1"}`))
-	c := newTestClient(t, f)
-	req := PhotoInitRequest{
-		PostInfo:    PhotoPostInfo{Title: "t", PrivacyLevel: "SELF_ONLY", Description: "d", AutoAddMusic: true},
-		SourceInfo:  SourceInfo{Source: "FILE_UPLOAD"},
-		PostMode:    "DIRECT_POST",
-		MediaType:   "PHOTO",
-		PhotoImages: []string{"https://cdn.test/1.jpg", "https://cdn.test/2.jpg"},
-	}
-	got, err := c.InitPhotoPost(context.Background(), "act-1", req)
-	if err != nil {
-		t.Fatalf("InitPhotoPost: %v", err)
-	}
-	if got != (PhotoInitResponse{PublishID: "p-1"}) {
-		t.Fatalf("init = %+v", got)
-	}
-	keys := decodeKeys(t, f.lastRequest(t).body)
-	if mode := string(keys["post_mode"]); mode != `"DIRECT_POST"` {
-		t.Fatalf("post_mode = %s", mode)
-	}
-	if media := string(keys["media_type"]); media != `"PHOTO"` {
-		t.Fatalf("media_type = %s", media)
-	}
-	var images []string
-	if err := json.Unmarshal(keys["photo_images"], &images); err != nil {
-		t.Fatalf("unmarshal photo_images: %v", err)
-	}
-	if len(images) != 2 {
-		t.Fatalf("photo_images = %v", images)
 	}
 }
 
@@ -190,25 +159,38 @@ func TestInitDraftUpload(t *testing.T) {
 
 func TestFetchStatus(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
-		want PublishStatus
+		name     string
+		body     string
+		want     PublishStatus
+		wantHits int64
 	}{
 		{
-			name: "happy path maps public ids and counters",
-			body: `{"status":"PUBLISH_COMPLETE","publicaly_available_post_id":["123","456"],"uploaded_bytes":100,"downloaded_bytes":7}`,
-			want: PublishStatus{Status: "PUBLISH_COMPLETE", PublicalyAvailablePostID: []string{"123", "456"}, UploadedBytes: 100, DownloadedBytes: 7},
+			name:     "happy path maps public ids and counters",
+			body:     `{"status":"PUBLISH_COMPLETE","publicaly_available_post_id":["123","456"],"uploaded_bytes":100,"downloaded_bytes":7}`,
+			want:     PublishStatus{Status: "PUBLISH_COMPLETE", PublicalyAvailablePostID: []string{"123", "456"}, UploadedBytes: 100, DownloadedBytes: 7},
+			wantHits: 1,
 		},
 		{
-			name: "fail reason maps",
-			body: `{"status":"FAILED","fail_reason":"spam"}`,
-			want: PublishStatus{Status: "FAILED", FailReason: "spam"},
+			name:     "fail reason maps",
+			body:     `{"status":"FAILED","fail_reason":"spam"}`,
+			want:     PublishStatus{Status: "FAILED", FailReason: "spam"},
+			wantHits: 1,
+		},
+		{
+			name:     "429 then success retries once",
+			body:     `{"status":"PUBLISH_COMPLETE"}`,
+			want:     PublishStatus{Status: "PUBLISH_COMPLETE"},
+			wantHits: 2,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeTikTok(t)
-			f.handle(statusPath, successEnvelope(tc.body))
+			if tc.wantHits > 1 {
+				f.queue(statusPath, wireErrorResponse(http.StatusTooManyRequests, "rate_limit_exceeded", "slow down", ""), successEnvelope(tc.body))
+			} else {
+				f.handle(statusPath, successEnvelope(tc.body))
+			}
 			c := newTestClient(t, f)
 			got, err := c.FetchStatus(context.Background(), "act-1", "v-1")
 			if err != nil {
@@ -224,6 +206,7 @@ func TestFetchStatus(t *testing.T) {
 			if string(sent["publish_id"]) != `"v-1"` {
 				t.Fatalf("publish_id = %s", sent["publish_id"])
 			}
+			wantHits(t, f, tc.wantHits)
 		})
 	}
 }

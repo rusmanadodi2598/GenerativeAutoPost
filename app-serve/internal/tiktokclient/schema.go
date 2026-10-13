@@ -87,17 +87,9 @@ type PostInfo struct {
 
 // PhotoPostInfo is PostInfo plus the photo only description and music switch.
 type PhotoPostInfo struct {
-	Title                 string `json:"title"`
-	PrivacyLevel          string `json:"privacy_level"`
-	DisableDuet           bool   `json:"disable_duet"`
-	DisableComment        bool   `json:"disable_comment"`
-	DisableStitch         bool   `json:"disable_stitch"`
-	VideoCoverTimestampMS int64  `json:"video_cover_timestamp_ms,omitempty"`
-	BrandContentToggle    bool   `json:"brand_content_toggle,omitempty"`
-	BrandOrganicToggle    bool   `json:"brand_organic_toggle,omitempty"`
-	IsAIGC                bool   `json:"is_aigc"`
-	Description           string `json:"description,omitempty"`
-	AutoAddMusic          bool   `json:"auto_add_music,omitempty"`
+	PostInfo
+	Description  string `json:"description,omitempty"`
+	AutoAddMusic bool   `json:"auto_add_music,omitempty"`
 }
 
 // SourceInfo tells TikTok where the media comes from and how it is chunked.
