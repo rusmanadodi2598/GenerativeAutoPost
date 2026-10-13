@@ -2,7 +2,7 @@
 //
 // @file      internal/auth/service_test.go
 // @for       Authorize URL tests and the shared OAuth test harness.
-// @uses      testing, miniredis/v2, internal/tiktokclient
+// @uses      testing, context, net/url, encoding/base64, strings, miniredis/v2
 // @reason    The redirect must carry exact scopes, client key, and redirect URI.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
@@ -21,8 +21,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
 const (
@@ -40,7 +38,8 @@ type harness struct {
 	mr       *miniredis.Miniredis
 }
 
-// newHarness wires a service over miniredis backed stores.
+// newHarness wires a service over miniredis backed stores. The lifecycle
+// fakes are defaults: callback tests never reach the refresher or the lock.
 func newHarness(t *testing.T, tokens TokenExchanger, accounts AccountUpserter) *harness {
 	t.Helper()
 	states, _ := newStateStore(t)
@@ -53,41 +52,11 @@ func newHarness(t *testing.T, tokens TokenExchanger, accounts AccountUpserter) *
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &harness{
-		svc:      NewService(cfg, tokens, accounts, states, sessions, logger),
+		svc:      NewService(cfg, tokens, &fakeRefresher{}, accounts, states, sessions, newFakeLocker(), logger),
 		states:   states,
 		sessions: sessions,
 		mr:       mr,
 	}
-}
-
-type fakeExchanger struct {
-	code   string
-	tokens tiktokclient.TokenSet
-	err    error
-	calls  int
-}
-
-func (f *fakeExchanger) ExchangeCode(_ context.Context, code string) (tiktokclient.TokenSet, error) {
-	f.calls++
-	f.code = code
-	return f.tokens, f.err
-}
-
-type fakeUpserter struct {
-	operatorID string
-	tokens     tiktokclient.TokenSet
-	granted    []string
-	id         string
-	err        error
-	calls      int
-}
-
-func (f *fakeUpserter) UpsertAccount(_ context.Context, operatorID string, tokens tiktokclient.TokenSet, grantedScopes []string) (string, error) {
-	f.calls++
-	f.operatorID = operatorID
-	f.tokens = tokens
-	f.granted = grantedScopes
-	return f.id, f.err
 }
 
 // stateFromURL reads the state query parameter out of an authorize URL.

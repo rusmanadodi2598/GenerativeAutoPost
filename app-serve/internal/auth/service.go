@@ -29,10 +29,19 @@ type TokenExchanger interface {
 	ExchangeCode(ctx context.Context, code string) (tiktokclient.TokenSet, error)
 }
 
-// AccountUpserter stores the granted tokens against the operator and returns
-// the account id.
+// TokenRefresher renews and revokes the TikTok credentials of an account.
+type TokenRefresher interface {
+	RefreshToken(ctx context.Context, refresh string) (tiktokclient.TokenSet, error)
+	Revoke(ctx context.Context, access string) error
+}
+
+// AccountUpserter persists the account token state the auth flow mutates.
 type AccountUpserter interface {
 	UpsertAccount(ctx context.Context, operatorID string, tokens tiktokclient.TokenSet, grantedScopes []string) (string, error)
+	RefreshMaterial(ctx context.Context, accountID string) (refreshToken string, accessToken string, err error)
+	StoreTokens(ctx context.Context, accountID string, tokens tiktokclient.TokenSet) error
+	MarkNeedsReauth(ctx context.Context, accountID string) error
+	MarkRevoked(ctx context.Context, accountID string) error
 }
 
 // ServiceConfig carries the settings the OAuth flow reads.
@@ -42,31 +51,45 @@ type ServiceConfig struct {
 	Scopes       string
 	AppUIBaseURL string
 	OperatorID   string
+	LockTTL      time.Duration
 }
 
 // Service orchestrates the TikTok sign in flow.
 type Service struct {
-	cfg      ServiceConfig
-	tokens   TokenExchanger
-	accounts AccountUpserter
-	states   *StateStore
-	sessions *SessionStore
-	logger   *slog.Logger
+	cfg       ServiceConfig
+	tokens    TokenExchanger
+	refresher TokenRefresher
+	accounts  AccountUpserter
+	states    *StateStore
+	sessions  *SessionStore
+	locker    Locker
+	logger    *slog.Logger
 }
 
 // NewService wires the OAuth service. A nil logger falls back to
 // slog.Default so a wiring mistake is not read as a storage outage.
-func NewService(cfg ServiceConfig, tokens TokenExchanger, accounts AccountUpserter, states *StateStore, sessions *SessionStore, logger *slog.Logger) *Service {
+func NewService(
+	cfg ServiceConfig,
+	tokens TokenExchanger,
+	refresher TokenRefresher,
+	accounts AccountUpserter,
+	states *StateStore,
+	sessions *SessionStore,
+	locker Locker,
+	logger *slog.Logger,
+) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Service{
-		cfg:      cfg,
-		tokens:   tokens,
-		accounts: accounts,
-		states:   states,
-		sessions: sessions,
-		logger:   logger,
+		cfg:       cfg,
+		tokens:    tokens,
+		refresher: refresher,
+		accounts:  accounts,
+		states:    states,
+		sessions:  sessions,
+		locker:    locker,
+		logger:    logger,
 	}
 }
 
