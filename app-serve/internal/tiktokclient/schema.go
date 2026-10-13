@@ -1,7 +1,7 @@
 // Package tiktokclient provides HTTP clients for the TikTok open API.
 //
 // @file      internal/tiktokclient/schema.go
-// @for       TikTok open API wire shapes for tokens, errors, and user info.
+// @for       TikTok open API wire shapes for tokens, errors, user info, and publishing.
 // @uses      encoding/json
 // @reason    Keeps request and response types separate from transport logic.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
@@ -58,4 +58,105 @@ type UserInfo struct {
 
 type userInfoData struct {
 	User UserInfo `json:"user"`
+}
+
+// CreatorInfo is the postable creator profile and its allowed privacy levels.
+type CreatorInfo struct {
+	CreatorUsername         string   `json:"creator_username"`
+	CreatorNickname         string   `json:"creator_nickname"`
+	CreatorAvatarURL        string   `json:"creator_avatar_url"`
+	PrivacyLevelOptions     []string `json:"privacy_level_options"`
+	CommentDisabled         bool     `json:"comment_disabled"`
+	DuetDisabled            bool     `json:"duet_disabled"`
+	StitchDisabled          bool     `json:"stitch_disabled"`
+	MaxVideoPostDurationSec int      `json:"max_video_post_duration_sec"`
+}
+
+// PostInfo carries the shared video post settings.
+type PostInfo struct {
+	Title                 string `json:"title"`
+	PrivacyLevel          string `json:"privacy_level"`
+	DisableDuet           bool   `json:"disable_duet"`
+	DisableComment        bool   `json:"disable_comment"`
+	DisableStitch         bool   `json:"disable_stitch"`
+	VideoCoverTimestampMS int64  `json:"video_cover_timestamp_ms,omitempty"`
+	BrandContentToggle    bool   `json:"brand_content_toggle,omitempty"`
+	BrandOrganicToggle    bool   `json:"brand_organic_toggle,omitempty"`
+	IsAIGC                bool   `json:"is_aigc"`
+}
+
+// PhotoPostInfo is PostInfo plus the photo only description and music switch.
+type PhotoPostInfo struct {
+	Title                 string `json:"title"`
+	PrivacyLevel          string `json:"privacy_level"`
+	DisableDuet           bool   `json:"disable_duet"`
+	DisableComment        bool   `json:"disable_comment"`
+	DisableStitch         bool   `json:"disable_stitch"`
+	VideoCoverTimestampMS int64  `json:"video_cover_timestamp_ms,omitempty"`
+	BrandContentToggle    bool   `json:"brand_content_toggle,omitempty"`
+	BrandOrganicToggle    bool   `json:"brand_organic_toggle,omitempty"`
+	IsAIGC                bool   `json:"is_aigc"`
+	Description           string `json:"description,omitempty"`
+	AutoAddMusic          bool   `json:"auto_add_music,omitempty"`
+}
+
+// SourceInfo tells TikTok where the media comes from and how it is chunked.
+type SourceInfo struct {
+	Source          string `json:"source"`
+	VideoSize       int64  `json:"video_size,omitempty"`
+	ChunkSize       int64  `json:"chunk_size,omitempty"`
+	TotalChunkCount int    `json:"total_chunk_count,omitempty"`
+	VideoURL        string `json:"video_url,omitempty"`
+}
+
+// VideoInitRequest is the direct video post init payload.
+type VideoInitRequest struct {
+	PostInfo   PostInfo   `json:"post_info"`
+	SourceInfo SourceInfo `json:"source_info"`
+}
+
+// VideoInitResponse carries the publish id and, for file uploads, the upload URL.
+type VideoInitResponse struct {
+	PublishID string `json:"publish_id"`
+	UploadURL string `json:"upload_url,omitempty"`
+}
+
+// PhotoInitRequest is the direct photo post init payload.
+type PhotoInitRequest struct {
+	PostInfo    PhotoPostInfo `json:"post_info"`
+	SourceInfo  SourceInfo    `json:"source_info"`
+	PostMode    string        `json:"post_mode"`
+	MediaType   string        `json:"media_type"`
+	PhotoImages []string      `json:"photo_images"`
+}
+
+// PhotoInitResponse carries the publish id for a photo post.
+type PhotoInitResponse struct {
+	PublishID string `json:"publish_id"`
+}
+
+// DraftInitRequest is the inbox draft init payload; it has no post_info.
+type DraftInitRequest struct {
+	SourceInfo SourceInfo `json:"source_info"`
+}
+
+// DraftInitResponse carries the publish id and upload URL for a draft.
+type DraftInitResponse struct {
+	PublishID string `json:"publish_id"`
+	UploadURL string `json:"upload_url,omitempty"`
+}
+
+// PublishStatus is the polled state of one publish job.
+type PublishStatus struct {
+	Status     string `json:"status"`
+	FailReason string `json:"fail_reason,omitempty"`
+	// PublicalyAvailablePostID keeps TikTok's misspelling on the wire while the Go name is correct (002 section 5.3).
+	PublicalyAvailablePostID []string `json:"publicaly_available_post_id,omitempty"`
+	UploadedBytes            int64    `json:"uploaded_bytes,omitempty"`
+	DownloadedBytes          int64    `json:"downloaded_bytes,omitempty"`
+}
+
+// publishIDRequest is the status fetch body.
+type publishIDRequest struct {
+	PublishID string `json:"publish_id"`
 }

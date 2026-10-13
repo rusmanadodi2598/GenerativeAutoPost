@@ -2,7 +2,7 @@
 //
 // @file      internal/tiktokclient/faketiktok_test.go
 // @for       In process fake TikTok server with scripted responses and a request log.
-// @uses      net/http/httptest, net/url, sync, sync/atomic, io
+// @uses      net/http/httptest, net/url, sync, sync/atomic, io, testing
 // @reason    Lets the client tests drive retries and wire errors without network access.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service

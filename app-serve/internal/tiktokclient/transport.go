@@ -49,6 +49,12 @@ func (c *Client) baseURL() string {
 
 // do runs a request with bounded retries and maps failures to typed errors.
 func (c *Client) do(ctx context.Context, method, path string, headers map[string]string, body io.Reader, contentType string) ([]byte, error) {
+	return c.doEndpoint(ctx, method, c.baseURL()+path, headers, body, contentType)
+}
+
+// doEndpoint is do against an already assembled absolute endpoint; chunk uploads
+// leave the API host this way without duplicating the retry loop.
+func (c *Client) doEndpoint(ctx context.Context, method, endpoint string, headers map[string]string, body io.Reader, contentType string) ([]byte, error) {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -57,7 +63,6 @@ func (c *Client) do(ctx context.Context, method, path string, headers map[string
 			return nil, badUpstream(err)
 		}
 	}
-	endpoint := c.baseURL() + path
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		res, err := c.send(reqCtx, method, endpoint, bodyReader(payload), headers, contentType)
