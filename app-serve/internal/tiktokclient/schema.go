@@ -1,7 +1,7 @@
 // Package tiktokclient provides HTTP clients for the TikTok open API.
 //
 // @file      internal/tiktokclient/schema.go
-// @for       TikTok open API wire shapes for tokens, errors, user info, and publishing.
+// @for       TikTok open API wire shapes for tokens, errors, user info, publishing, and videos.
 // @uses      encoding/json
 // @reason    Keeps request and response types separate from transport logic.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
@@ -151,4 +151,48 @@ type PublishStatus struct {
 // publishIDRequest is the status fetch body.
 type publishIDRequest struct {
 	PublishID string `json:"publish_id"`
+}
+
+// Video is one TikTok video.
+type Video struct {
+	ID            string `json:"id"`
+	CreateTime    int64  `json:"create_time,omitempty"`
+	CoverImageURL string `json:"cover_image_url,omitempty"`
+	ShareURL      string `json:"share_url,omitempty"`
+	Description   string `json:"video_description,omitempty"`
+	Duration      int64  `json:"duration,omitempty"`
+	Height        int64  `json:"height,omitempty"`
+	Width         int64  `json:"width,omitempty"`
+	Title         string `json:"title,omitempty"`
+	EmbedHTML     string `json:"embed_html,omitempty"`
+	EmbedLink     string `json:"embed_link,omitempty"`
+	// Counts keep omitempty so an absent count stays absent, never zero (002 section 7).
+	LikeCount    int64 `json:"like_count,omitempty"`
+	CommentCount int64 `json:"comment_count,omitempty"`
+	ShareCount   int64 `json:"share_count,omitempty"`
+	ViewCount    int64 `json:"view_count,omitempty"`
+	IsAIGC       bool  `json:"is_aigc,omitempty"`
+}
+
+// VideoPage is one page of the account's video list.
+type VideoPage struct {
+	Videos  []Video `json:"videos"`
+	Cursor  int64   `json:"cursor,omitempty"`
+	HasMore bool    `json:"has_more,omitempty"`
+}
+
+// videoListRequest is the video list body.
+type videoListRequest struct {
+	Cursor   string `json:"cursor,omitempty"`
+	MaxCount int    `json:"max_count,omitempty"`
+}
+
+// videoQueryRequest is the video query body.
+type videoQueryRequest struct {
+	VideoIDs []string `json:"video_ids"`
+}
+
+// videoQueryData unwraps the videos member of a query response.
+type videoQueryData struct {
+	Videos []Video `json:"videos"`
 }
