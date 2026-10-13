@@ -37,6 +37,7 @@ const (
 	CodeTikTokRateLimited      Code = "TIKTOK_RATE_LIMITED"
 	CodeTikTokUnavailable      Code = "TIKTOK_UNAVAILABLE"
 	CodeTikTokUnknown          Code = "TIKTOK_UNKNOWN_ERROR"
+	CodeTikTokBadUpstream      Code = "TIKTOK_BAD_UPSTREAM"
 )
 
 // ProblemBase hosts stable type URIs under our own domain.
@@ -73,4 +74,5 @@ var catalog = map[Code]catalogEntry{
 	CodeTikTokRateLimited:      {429, "TikTok rate limited", "tiktok-rate-limited"},
 	CodeTikTokUnavailable:      {503, "TikTok unavailable", "tiktok-unavailable"},
 	CodeTikTokUnknown:          {502, "TikTok error", "tiktok-unknown-error"},
+	CodeTikTokBadUpstream:      {502, "TikTok response unreadable", "tiktok-bad-upstream"},
 }
