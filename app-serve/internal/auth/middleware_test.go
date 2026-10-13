@@ -2,7 +2,7 @@
 //
 // @file      internal/auth/middleware_test.go
 // @for       Gin middleware tests for cookie auth and CSRF checks.
-// @uses      testing, net/http/httptest, gin, miniredis/v2, redis/go-redis/v9
+// @uses      testing, net/http/httptest, encoding/json, gin, miniredis/v2, redis/go-redis/v9, internal/apierror
 // @reason    Proves missing, stale, and mismatched credentials are refused.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     handler
@@ -12,12 +12,15 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
 // constCookie is the session cookie name used across the middleware tests.
@@ -32,6 +35,32 @@ func newGinContext(t *testing.T, method, path string) (*gin.Context, *httptest.R
 	req := httptest.NewRequest(method, path, nil)
 	c.Request = req
 	return c, rec, req
+}
+
+// problemCode decodes the RFC 9457 body and returns its code member.
+func problemCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding problem body %q: %v", rec.Body.String(), err)
+	}
+	return body.Code
+}
+
+// assertRejected checks the HTTP status and the problem body code together.
+func assertRejected(t *testing.T, c *gin.Context, rec *httptest.ResponseRecorder, status int, code apierror.Code) {
+	t.Helper()
+	if !c.IsAborted() {
+		t.Fatal("expected the request to abort")
+	}
+	if rec.Code != status {
+		t.Fatalf("status = %d, want %d", rec.Code, status)
+	}
+	if got := problemCode(t, rec); got != string(code) {
+		t.Fatalf("body code = %q, want %q", got, code)
+	}
 }
 
 func TestRequireSessionAttachesSession(t *testing.T) {
@@ -69,12 +98,7 @@ func TestRequireSessionMissingCookieIsUnauthorized(t *testing.T) {
 
 	RequireSession(store, constCookie)(c)
 
-	if !c.IsAborted() {
-		t.Fatal("expected the request to abort")
-	}
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
+	assertRejected(t, c, rec, http.StatusUnauthorized, apierror.CodeUnauthorized)
 }
 
 func TestRequireSessionStaleCookieIsUnauthorized(t *testing.T) {
@@ -90,12 +114,20 @@ func TestRequireSessionStaleCookieIsUnauthorized(t *testing.T) {
 
 	RequireSession(store, constCookie)(c)
 
-	if !c.IsAborted() {
-		t.Fatal("expected the stale session to abort")
-	}
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401", rec.Code)
-	}
+	assertRejected(t, c, rec, http.StatusUnauthorized, apierror.CodeUnauthorized)
+}
+
+// TestRequireSessionRedisDownIsServiceUnavailable closes Redis, so a cookie
+// that looks valid must still map to a 503 outage, not a 401 sign out.
+func TestRequireSessionRedisDownIsServiceUnavailable(t *testing.T) {
+	store, mr := newSessionStore(t, time.Hour)
+	mr.Close()
+	c, rec, req := newGinContext(t, http.MethodGet, "/session")
+	req.AddCookie(&http.Cookie{Name: constCookie, Value: "sess-1"})
+
+	RequireSession(store, constCookie)(c)
+
+	assertRejected(t, c, rec, http.StatusServiceUnavailable, apierror.CodeServiceUnavailable)
 }
 
 func TestRequireCSRFAcceptsMatchingToken(t *testing.T) {
@@ -116,12 +148,7 @@ func TestRequireCSRFRejectsMissingToken(t *testing.T) {
 
 	RequireCSRF()(c)
 
-	if !c.IsAborted() {
-		t.Fatal("expected a missing token to abort")
-	}
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
+	assertRejected(t, c, rec, http.StatusForbidden, apierror.CodeForbidden)
 }
 
 func TestRequireCSRFRejectsWrongToken(t *testing.T) {
@@ -131,12 +158,7 @@ func TestRequireCSRFRejectsWrongToken(t *testing.T) {
 
 	RequireCSRF()(c)
 
-	if !c.IsAborted() {
-		t.Fatal("expected a mismatched token to abort")
-	}
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
+	assertRejected(t, c, rec, http.StatusForbidden, apierror.CodeForbidden)
 }
 
 func TestRequireCSRFRejectsWithoutSession(t *testing.T) {
@@ -145,10 +167,5 @@ func TestRequireCSRFRejectsWithoutSession(t *testing.T) {
 
 	RequireCSRF()(c)
 
-	if !c.IsAborted() {
-		t.Fatal("expected a missing session to abort")
-	}
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", rec.Code)
-	}
+	assertRejected(t, c, rec, http.StatusForbidden, apierror.CodeForbidden)
 }

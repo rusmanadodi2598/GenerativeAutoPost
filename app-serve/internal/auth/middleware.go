@@ -76,14 +76,14 @@ func SessionFrom(c *gin.Context) (*Session, bool) {
 	return sess, ok
 }
 
-// writeSessionError forwards the store's typed error unchanged.
+// writeSessionError forwards the store's typed error unchanged. The fallback
+// only runs when the store violates its contract and returns a bare error.
 func writeSessionError(c *gin.Context, err error) {
 	var apiErr *apierror.Error
-	if errors.As(err, &apiErr) {
-		apierror.Write(c.Writer, c.Request, apiErr)
-		return
+	if !errors.As(err, &apiErr) {
+		apiErr = errSessionUnavailable
 	}
-	apierror.Write(c.Writer, c.Request, errSessionUnavailable.Wrap(err))
+	apierror.Write(c.Writer, c.Request, apiErr)
 }
 
 // writeCSRFError answers a failed same origin check.

@@ -10,10 +10,12 @@
 // @since     2026-10-12
 package auth
 
+import "time"
+
 // SessionResponse is the session view sent to the console. It deliberately
 // carries no token material: the ID stays server side.
 type SessionResponse struct {
-	OperatorID string   `json:"operator_id"`
-	Scopes     []string `json:"scopes"`
-	ExpiresAt  string   `json:"expires_at"`
+	OperatorID string    `json:"operator_id"`
+	Scopes     []string  `json:"scopes"`
+	ExpiresAt  time.Time `json:"expires_at"`
 }

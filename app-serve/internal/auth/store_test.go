@@ -121,6 +121,12 @@ func TestStateStoreConsumeUnknownState(t *testing.T) {
 	wantCode(t, err, apierror.CodeUnauthorized)
 }
 
+func TestStateStoreIssueEmptyScopesIsValidationFailed(t *testing.T) {
+	store, _ := newStateStore(t)
+	_, err := store.Issue(context.Background(), "")
+	wantCode(t, err, apierror.CodeValidationFailed)
+}
+
 // TestStateStoreConsumeEmptyStateSkipsRedis closes Redis first, so an
 // unauthorized answer proves the empty state never reached the client.
 func TestStateStoreConsumeEmptyStateSkipsRedis(t *testing.T) {
@@ -208,5 +214,14 @@ func TestSessionStoreGetWithRedisDown(t *testing.T) {
 	store, mr := newSessionStore(t, time.Hour)
 	mr.Close()
 	_, err := store.Get(context.Background(), "sess-abc")
+	wantCode(t, err, apierror.CodeServiceUnavailable)
+}
+
+// TestSessionStoreDeleteWithRedisDown proves the outage is surfaced rather
+// than reported as a successful logout.
+func TestSessionStoreDeleteWithRedisDown(t *testing.T) {
+	store, mr := newSessionStore(t, time.Hour)
+	mr.Close()
+	err := store.Delete(context.Background(), "sess-abc")
 	wantCode(t, err, apierror.CodeServiceUnavailable)
 }

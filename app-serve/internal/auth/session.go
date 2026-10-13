@@ -76,7 +76,9 @@ func (s *SessionStore) Get(ctx context.Context, id string) (*Session, error) {
 	return &sess, nil
 }
 
-// Delete removes the session. A missing key is not an error.
+// Delete removes the session. A missing key is not an error. A transport
+// failure returns SERVICE_UNAVAILABLE on purpose: reporting success would
+// leave a live session behind after logout.
 func (s *SessionStore) Delete(ctx context.Context, id string) error {
 	if err := s.client.Del(ctx, redisx.KeySession+id).Err(); err != nil {
 		return errSessionUnavailable.Wrap(err)
