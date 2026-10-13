@@ -119,6 +119,16 @@ func (s *Service) AuthorizeURL(ctx context.Context, requestedScopes string) (str
 	return authorizeEndpoint + "?" + query.Encode(), nil
 }
 
+// CallbackURL builds the browser return URL for the OAuth result page. An
+// empty app base URL yields the path only, so a same origin deployment works.
+func (s *Service) CallbackURL(status string) string {
+	path := "/auth/result?status=" + url.QueryEscape(status)
+	if s.cfg.AppUIBaseURL == "" {
+		return path
+	}
+	return s.cfg.AppUIBaseURL + path
+}
+
 // CompleteCallback consumes the state, exchanges the code, upserts the
 // account, and creates the operator session. A spent or unknown state fails
 // before the code is exchanged, so a replayed callback does no TikTok work.
