@@ -39,7 +39,7 @@ type InitDraftRequest struct {
 // PostInfoRequest carries the video post settings sent to TikTok.
 type PostInfoRequest struct {
 	Title                 string `json:"title" validate:"required"`
-	PrivacyLevel          string `json:"privacy_level" validate:"required"`
+	PrivacyLevel          string `json:"privacy_level"`
 	DisableDuet           bool   `json:"disable_duet"`
 	DisableComment        bool   `json:"disable_comment"`
 	DisableStitch         bool   `json:"disable_stitch"`
