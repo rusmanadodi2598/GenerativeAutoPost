@@ -34,8 +34,21 @@ func keyForID(id string) string {
 	return id
 }
 
-// validID rejects path separators so an id can never escape its root.
+// validID allow-lists the id charset because the id is concatenated straight
+// into filenames and URLs: anything else names a different resource than the
+// object key, or escapes the store root.
 func validID(id string) bool {
-	return id != "" && !strings.Contains(id, "/") && !strings.Contains(id, "\\") &&
-		!strings.Contains(id, "..")
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '.':
+		default:
+			return false
+		}
+	}
+	// ".." survives the charset allow list as dots, so name the escape outright.
+	return !strings.Contains(id, "..")
 }

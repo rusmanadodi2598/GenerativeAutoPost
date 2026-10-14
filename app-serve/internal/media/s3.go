@@ -13,6 +13,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"time"
@@ -41,7 +43,22 @@ func NewS3(client ObjectClient, bucket, publicBase string) *S3 {
 	return &S3{client: client, bucket: bucket, publicBase: strings.TrimSuffix(publicBase, "/")}
 }
 
-// Put buffers the stream and writes it to bucket/keyForID(id).
+// notFoundError marks a client failure that means the key was never stored.
+// Only such errors become NOT_FOUND; any other client failure is a storage
+// failure so a broken backend is never reported as a clean missing object.
+func notFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errObjectMissing) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found") ||
+		strings.Contains(strings.ToLower(err.Error()), "no such")
+}
+
+// Put buffers the stream and writes it to bucket/keyForID(id), plus a sidecar
+// key holding the object's metadata.
 func (s *S3) Put(ctx context.Context, obj MediaObject, r io.Reader) error {
 	if !validID(obj.ID) {
 		return apierror.New(apierror.CodeValidationFailed, 0, "media id is invalid")
@@ -53,7 +70,26 @@ func (s *S3) Put(ctx context.Context, obj MediaObject, r io.Reader) error {
 	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID), body); err != nil {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
 	}
+	meta, err := json.Marshal(obj)
+	if err != nil {
+		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
+	}
+	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID)+sidecarSuffix, meta); err != nil {
+		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
+	}
 	return nil
+}
+
+// readSidecar loads the object's recorded metadata. A missing sidecar yields an
+// empty object, so an object with no recorded owner is denied on read.
+func (s *S3) readSidecar(ctx context.Context, id string) MediaObject {
+	body, err := s.client.GetObject(ctx, s.bucket, keyForID(id)+sidecarSuffix)
+	if err != nil {
+		return MediaObject{}
+	}
+	var obj MediaObject
+	_ = json.Unmarshal(body, &obj)
+	return obj
 }
 
 // Get fetches the key bytes and returns them as a read closer.
@@ -63,14 +99,21 @@ func (s *S3) Get(ctx context.Context, id string) (MediaObject, io.ReadCloser, er
 	}
 	body, err := s.client.GetObject(ctx, s.bucket, keyForID(id))
 	if err != nil {
-		return MediaObject{}, nil, apierror.New(apierror.CodeNotFound, 0, "media object not found").Wrap(err)
+		if notFoundError(err) {
+			return MediaObject{}, nil, apierror.New(apierror.CodeNotFound, 0, "media object not found").Wrap(err)
+		}
+		return MediaObject{}, nil, apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be read").Wrap(err)
 	}
-	return MediaObject{
-		ID:        id,
-		ByteSize:  int64(len(body)),
-		Storage:   MediaStorageS3,
-		CreatedAt: time.Now().UTC(),
-	}, io.NopCloser(bytes.NewReader(body)), nil
+	obj := s.readSidecar(ctx, id)
+	obj.ID = id
+	obj.ByteSize = int64(len(body))
+	if obj.Storage == "" {
+		obj.Storage = MediaStorageS3
+	}
+	if obj.CreatedAt.IsZero() {
+		obj.CreatedAt = time.Now().UTC()
+	}
+	return obj, io.NopCloser(bytes.NewReader(body)), nil
 }
 
 // Delete removes the key from the bucket.
@@ -79,6 +122,9 @@ func (s *S3) Delete(ctx context.Context, id string) error {
 		return apierror.New(apierror.CodeValidationFailed, 0, "media id is invalid")
 	}
 	if err := s.client.DeleteObject(ctx, s.bucket, keyForID(id)); err != nil {
+		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be deleted").Wrap(err)
+	}
+	if err := s.client.DeleteObject(ctx, s.bucket, keyForID(id)+sidecarSuffix); err != nil && !notFoundError(err) {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be deleted").Wrap(err)
 	}
 	return nil

@@ -11,6 +11,7 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -40,6 +41,11 @@ type Service struct {
 	store  Store
 	cfg    ServiceConfig
 	logger *slog.Logger
+}
+
+// MaxBytes is the configured upload cap, used by the handler to bound the request body.
+func (s *Service) MaxBytes() int64 {
+	return s.cfg.MaxBytes
 }
 
 // NewService wires validation and storage together.
@@ -97,6 +103,7 @@ func (s *Service) Upload(ctx context.Context, accountID string, kind MediaKind, 
 
 	obj := MediaObject{
 		ID:             id.String(),
+		OwnerID:        accountID,
 		Kind:           kind,
 		ContentType:    contentType,
 		ByteSize:       int64(len(payload)),
@@ -106,14 +113,51 @@ func (s *Service) Upload(ctx context.Context, accountID string, kind MediaKind, 
 		CreatedAt:      time.Now().UTC(),
 	}
 
-	if err := s.store.Put(ctx, obj, strings.NewReader(string(payload))); err != nil {
+	if err := s.store.Put(ctx, obj, bytes.NewReader(payload)); err != nil {
 		s.logger.ErrorContext(ctx, "media put failed", "id", obj.ID, "error", err)
 		return MediaObject{}, err
 	}
-	if publicURL, err := s.store.SignPublicURL(ctx, obj.ID); err == nil {
+	publicURL, err := s.store.SignPublicURL(ctx, obj.ID)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "media sign public url failed", "id", obj.ID, "error", err)
+	} else {
 		obj.PublicURL = publicURL
 	}
 	return obj, nil
+}
+
+// Get resolves one object for accountID. A stored object owned by another
+// account is reported as missing, so the handler cannot confirm it exists.
+func (s *Service) Get(ctx context.Context, accountID, id string) (MediaObject, io.ReadCloser, error) {
+	obj, body, err := s.store.Get(ctx, id)
+	if err != nil {
+		return MediaObject{}, nil, err
+	}
+	if !ownsObject(accountID, obj) {
+		_ = body.Close()
+		return MediaObject{}, nil, apierror.New(apierror.CodeNotFound, 0, "Media object not found.")
+	}
+	return obj, body, nil
+}
+
+// Delete removes one object owned by accountID. Another account's object is
+// reported as missing and left in place.
+func (s *Service) Delete(ctx context.Context, accountID, id string) error {
+	obj, body, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	_ = body.Close()
+	if !ownsObject(accountID, obj) {
+		return apierror.New(apierror.CodeNotFound, 0, "Media object not found.")
+	}
+	return s.store.Delete(ctx, id)
+}
+
+// ownsObject reports whether accountID owns obj. An object with no recorded
+// owner is never handed out, so a misconfigured store denies rather than leaks.
+func ownsObject(accountID string, obj MediaObject) bool {
+	return accountID != "" && obj.OwnerID != "" && obj.OwnerID == accountID
 }
 
 // PullFromURL accepts only a host under the verified PublicBaseURL. The caller

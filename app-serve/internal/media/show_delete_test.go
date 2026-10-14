@@ -19,7 +19,7 @@ import (
 
 func TestShowHandlerRedirectsToSignedURL(t *testing.T) {
 	store := newFakeStore()
-	store.objects["obj-1"] = MediaObject{ID: "obj-1", Kind: MediaKindVideo}
+	store.objects["obj-1"] = MediaObject{ID: "obj-1", OwnerID: "acct-1", Kind: MediaKindVideo}
 	store.signedURL = "https://cdn.example.test/obj-1?sig=abc"
 	router := testRouter(t, store, "acct-1", 0)
 
@@ -36,7 +36,7 @@ func TestShowHandlerRedirectsToSignedURL(t *testing.T) {
 
 func TestShowHandlerReturnsMetadataWithoutSignedURL(t *testing.T) {
 	store := newFakeStore()
-	store.objects["obj-1"] = MediaObject{ID: "obj-1", Kind: MediaKindPhoto, ByteSize: 12}
+	store.objects["obj-1"] = MediaObject{ID: "obj-1", OwnerID: "acct-1", Kind: MediaKindPhoto, ByteSize: 12}
 	router := testRouter(t, store, "acct-1", 0)
 
 	rec := httptest.NewRecorder()
@@ -81,7 +81,7 @@ func TestShowHandlerMissingObjectIsNotFound(t *testing.T) {
 
 func TestDeleteHandlerRemovesObject(t *testing.T) {
 	store := newFakeStore()
-	store.objects["obj-1"] = MediaObject{ID: "obj-1"}
+	store.objects["obj-1"] = MediaObject{ID: "obj-1", OwnerID: "acct-1"}
 	router := testRouter(t, store, "acct-1", 0)
 
 	rec := httptest.NewRecorder()

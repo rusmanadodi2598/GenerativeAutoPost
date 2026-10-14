@@ -156,8 +156,8 @@ func TestS3RoundTripUsesBucketAndKey(t *testing.T) {
 	if err := store.Put(ctx, MediaObject{ID: "obj-9"}, bytes.NewReader(payload)); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	if len(client.puts) != 1 || client.puts[0] != "obj-9" {
-		t.Errorf("puts = %v, want [obj-9]", client.puts)
+	if len(client.puts) != 2 || client.puts[0] != "obj-9" || client.puts[1] != "obj-9"+sidecarSuffix {
+		t.Errorf("puts = %v, want [obj-9 obj-9.json]", client.puts)
 	}
 	if client.buckets[0] != "media-bucket" {
 		t.Errorf("bucket = %q, want media-bucket", client.buckets[0])
@@ -181,8 +181,8 @@ func TestS3RoundTripUsesBucketAndKey(t *testing.T) {
 	if err := store.Delete(ctx, "obj-9"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if len(client.deletes) != 1 || client.deletes[0] != "obj-9" {
-		t.Errorf("deletes = %v, want [obj-9]", client.deletes)
+	if len(client.deletes) != 2 || client.deletes[0] != "obj-9" || client.deletes[1] != "obj-9"+sidecarSuffix {
+		t.Errorf("deletes = %v, want [obj-9 obj-9.json]", client.deletes)
 	}
 }
 

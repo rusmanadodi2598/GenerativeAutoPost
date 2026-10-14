@@ -33,6 +33,7 @@ const (
 // MediaObject describes one uploaded media payload.
 type MediaObject struct {
 	ID             string       `json:"id"`
+	OwnerID        string       `json:"owner_id"`
 	Kind           MediaKind    `json:"kind"`
 	ContentType    string       `json:"content_type"`
 	ByteSize       int64        `json:"byte_size"`

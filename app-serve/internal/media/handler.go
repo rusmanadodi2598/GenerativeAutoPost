@@ -31,13 +31,11 @@ type Handler struct {
 	svc     *Service
 	store   Store
 	session SessionAccount
-	maxBody int64
 }
 
 // NewHandler wires the media handlers to validation, storage, and sessions.
-// A non-positive maxBody leaves the request body uncapped.
-func NewHandler(svc *Service, store Store, session SessionAccount, maxBody int64) *Handler {
-	return &Handler{svc: svc, store: store, session: session, maxBody: maxBody}
+func NewHandler(svc *Service, store Store, session SessionAccount) *Handler {
+	return &Handler{svc: svc, store: store, session: session}
 }
 
 // successEnvelope is the shared success shape: typed data plus request meta.
@@ -72,9 +70,12 @@ func (h *Handler) Upload(c *gin.Context) {
 			apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
 		return
 	}
-	if h.maxBody > 0 {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.maxBody)
+	maxBytes := h.svc.MaxBytes()
+	if maxBytes <= 0 {
+		writeError(c, apierror.New(apierror.CodeInternal, 0, "The request could not be completed."))
+		return
 	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
 
 	kind, ok := uploadKind(c.PostForm("kind"))
 	if !ok {
@@ -118,7 +119,13 @@ func (h *Handler) Upload(c *gin.Context) {
 // Show returns one object: a 302 to its signed URL when the store signs
 // public URLs, otherwise the metadata envelope. A missing id is a 404.
 func (h *Handler) Show(c *gin.Context) {
-	obj, rc, err := h.store.Get(c.Request.Context(), c.Param("id"))
+	accountID, ok := accountFrom(c)
+	if !ok {
+		apierror.Write(c.Writer, c.Request,
+			apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
+		return
+	}
+	obj, rc, err := h.svc.Get(c.Request.Context(), accountID, c.Param("id"))
 	if err != nil {
 		writeError(c, missingAsNotFound(err))
 		return
@@ -140,7 +147,13 @@ func (h *Handler) Show(c *gin.Context) {
 // Delete removes one object and answers 204. A missing id still answers
 // 204 because the end state, no stored bytes, already holds.
 func (h *Handler) Delete(c *gin.Context) {
-	if err := h.store.Delete(c.Request.Context(), c.Param("id")); err != nil {
+	accountID, ok := accountFrom(c)
+	if !ok {
+		apierror.Write(c.Writer, c.Request,
+			apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
+		return
+	}
+	if err := h.svc.Delete(c.Request.Context(), accountID, c.Param("id")); err != nil {
 		writeError(c, err)
 		return
 	}
