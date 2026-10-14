@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"path"
 	"strings"
 )
 
@@ -36,7 +37,7 @@ func keyForID(id string) string {
 
 // validID allow-lists the id charset because the id is concatenated straight
 // into filenames and URLs: anything else names a different resource than the
-// object key, or escapes the store root.
+// object key, or escapes the store root through a path-traversal id.
 func validID(id string) bool {
 	if id == "" {
 		return false
@@ -49,6 +50,10 @@ func validID(id string) bool {
 			return false
 		}
 	}
-	// ".." survives the charset allow list as dots, so name the escape outright.
-	return !strings.Contains(id, "..")
+	// Dot-only ids survive the charset allow list but resolve to the current or
+	// parent directory, so reject them by name and by cleaned path form.
+	if id == "." || strings.Contains(id, "..") {
+		return false
+	}
+	return path.Clean(id) == id
 }

@@ -64,7 +64,8 @@ func TestValidIDTable(t *testing.T) {
 		valid bool
 	}{
 		{"a?b", false}, {"a#b", false}, {"a b", false}, {"a\nb", false},
-		{"..", false}, {"a/b", false}, {`a\b`, false}, {"", false},
+		{"..", false}, {".", false}, {"a/./b", false}, {"a/b/..", false},
+		{"a/b", false}, {`a\b`, false}, {"", false}, {"a.", true}, {".hidden", true},
 		{"550e8400-e29b-41d4-a716-446655440000", true},
 		{"obj-1_ABC.xyz", true}, {"abc123", true},
 	}

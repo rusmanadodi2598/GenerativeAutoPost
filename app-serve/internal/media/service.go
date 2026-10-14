@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -140,14 +141,19 @@ func (s *Service) Get(ctx context.Context, accountID, id string) (MediaObject, i
 	return obj, body, nil
 }
 
-// Delete removes one object owned by accountID. Another account's object is
-// reported as missing and left in place.
+// Delete removes one object owned by accountID. A missing object is a no-op
+// and a foreign object is a 404, so a retry after a lost response is safe.
 func (s *Service) Delete(ctx context.Context, accountID, id string) error {
 	obj, body, err := s.store.Get(ctx, id)
 	if err != nil {
+		if isMissing(err) {
+			return nil
+		}
 		return err
 	}
-	_ = body.Close()
+	if body != nil {
+		_ = body.Close()
+	}
 	if !ownsObject(accountID, obj) {
 		return apierror.New(apierror.CodeNotFound, 0, "Media object not found.")
 	}
@@ -158,6 +164,17 @@ func (s *Service) Delete(ctx context.Context, accountID, id string) error {
 // owner is never handed out, so a misconfigured store denies rather than leaks.
 func ownsObject(accountID string, obj MediaObject) bool {
 	return accountID != "" && obj.OwnerID != "" && obj.OwnerID == accountID
+}
+
+// isMissing reports whether err means the id was never stored. Backends wrap
+// the miss in a NOT_FOUND error without an Unwrap chain, so the code is
+// checked alongside the sentinel.
+func isMissing(err error) bool {
+	if errors.Is(err, errObjectMissing) {
+		return true
+	}
+	var apiErr *apierror.Error
+	return errors.As(err, &apiErr) && apiErr.Code == apierror.CodeNotFound
 }
 
 // PullFromURL accepts only a host under the verified PublicBaseURL. The caller
