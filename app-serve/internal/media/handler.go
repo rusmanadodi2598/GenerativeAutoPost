@@ -66,8 +66,8 @@ func (mediaView) successData() {}
 
 // Upload accepts one multipart file part and stores it after validation.
 func (h *Handler) Upload(c *gin.Context) {
-	accountID, ok := h.session(c)
-	if !ok || accountID == "" {
+	accountID, ok := accountFrom(c)
+	if !ok {
 		apierror.Write(c.Writer, c.Request,
 			apierror.New(apierror.CodeUnauthorized, 0, "Sign in to continue."))
 		return

@@ -95,14 +95,10 @@ func uploadRequest(t *testing.T, contentType, fileName, body string, fields map[
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	if fileName != "" {
-		header := make(map[string][]string)
+		disposition := `form-data; name="file"; filename="` + fileName + `"`
+		header := map[string][]string{"Content-Disposition": {disposition}}
 		if contentType != "" {
-			header["Content-Disposition"] = []string{
-				`form-data; name="file"; filename="` + fileName + `"`}
 			header["Content-Type"] = []string{contentType}
-		} else {
-			header["Content-Disposition"] = []string{
-				`form-data; name="file"; filename="` + fileName + `"`}
 		}
 		part, err := w.CreatePart(header)
 		if err != nil {
@@ -138,44 +134,45 @@ func bodyCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestUploadHandlerRejectsDisallowedContentType(t *testing.T) {
-	router := testRouter(t, newFakeStore(), "acct-1", 0)
+	rec := uploadCase(t, newFakeStore(), "acct-1", 0, "application/x-msdownload", "run.exe",
+		"audio")
+	assertStatus(t, rec, http.StatusUnprocessableEntity)
+	assertCode(t, rec, "VALIDATION_FAILED")
+}
 
+// uploadCase runs one upload through a fresh router and returns the recorder.
+func uploadCase(t *testing.T, store Store, account string, maxBody int64,
+	contentType, fileName, kind string) *httptest.ResponseRecorder {
+	t.Helper()
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, uploadRequest(t, "application/x-msdownload", "run.exe", "MZ",
-		map[string]string{"kind": "video"}))
+	testRouter(t, store, account, maxBody).ServeHTTP(rec,
+		uploadRequest(t, contentType, fileName, "bytes", map[string]string{"kind": kind}))
+	return rec
+}
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
+func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, want int) {
+	t.Helper()
+	if rec.Code != want {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, want, rec.Body.String())
 	}
-	if code := bodyCode(t, rec); code != "VALIDATION_FAILED" {
-		t.Errorf("code = %q, want VALIDATION_FAILED", code)
+}
+
+func assertCode(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if code := bodyCode(t, rec); code != want {
+		t.Errorf("code = %q, want %s", code, want)
 	}
 }
 
 func TestUploadHandlerRejectsMissingFilePart(t *testing.T) {
-	router := testRouter(t, newFakeStore(), "acct-1", 0)
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, uploadRequest(t, "", "", "", map[string]string{"kind": "video"}))
-
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
-	}
-	if code := bodyCode(t, rec); code != "VALIDATION_FAILED" {
-		t.Errorf("code = %q, want VALIDATION_FAILED", code)
-	}
+	rec := uploadCase(t, newFakeStore(), "acct-1", 0, "", "", "video")
+	assertStatus(t, rec, http.StatusUnprocessableEntity)
+	assertCode(t, rec, "VALIDATION_FAILED")
 }
 
 func TestUploadHandlerRejectsUnknownKind(t *testing.T) {
-	router := testRouter(t, newFakeStore(), "acct-1", 0)
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, uploadRequest(t, "video/mp4", "clip.mp4", "bytes",
-		map[string]string{"kind": "audio"}))
-
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
-	}
+	rec := uploadCase(t, newFakeStore(), "acct-1", 0, "video/mp4", "clip.mp4", "audio")
+	assertStatus(t, rec, http.StatusUnprocessableEntity)
 }
 
 func TestUploadHandlerRejectsNonNumericDuration(t *testing.T) {
@@ -185,23 +182,49 @@ func TestUploadHandlerRejectsNonNumericDuration(t *testing.T) {
 	router.ServeHTTP(rec, uploadRequest(t, "video/mp4", "clip.mp4", "bytes",
 		map[string]string{"kind": "video", "duration_ms": "soon"}))
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422: %s", rec.Code, rec.Body.String())
-	}
+	assertStatus(t, rec, http.StatusUnprocessableEntity)
 }
 
 func TestUploadHandlerRequiresSession(t *testing.T) {
-	router := testRouter(t, newFakeStore(), "", 0)
+	rec := uploadCase(t, newFakeStore(), "", 0, "video/mp4", "clip.mp4", "video")
+	assertStatus(t, rec, http.StatusUnauthorized)
+	assertCode(t, rec, "UNAUTHORIZED")
+}
 
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, uploadRequest(t, "video/mp4", "clip.mp4", "bytes",
-		map[string]string{"kind": "video"}))
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401: %s", rec.Code, rec.Body.String())
+func seedObject(t *testing.T, store *fakeStore) string {
+	t.Helper()
+	obj := MediaObject{ID: "media-1", Kind: MediaKindVideo, ContentType: "video/mp4", ByteSize: 4}
+	if err := store.Put(context.Background(), obj, strings.NewReader("bytes")); err != nil {
+		t.Fatalf("seeding store: %v", err)
 	}
-	if code := bodyCode(t, rec); code != "UNAUTHORIZED" {
-		t.Errorf("code = %q, want UNAUTHORIZED", code)
+	return obj.ID
+}
+
+// requireSessionCase runs one guarded route with no session and asserts 401.
+func requireSessionCase(t *testing.T, method, id string, store *fakeStore) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	testRouter(t, store, "", 0).ServeHTTP(rec, httptest.NewRequest(method, "/media/"+id, nil))
+	assertStatus(t, rec, http.StatusUnauthorized)
+	assertCode(t, rec, "UNAUTHORIZED")
+}
+
+func TestShowHandlerRequiresSession(t *testing.T) {
+	store := newFakeStore()
+	requireSessionCase(t, http.MethodGet, seedObject(t, store), store)
+}
+
+func TestDeleteHandlerRequiresSession(t *testing.T) {
+	store := newFakeStore()
+	id := seedObject(t, store)
+
+	requireSessionCase(t, http.MethodDelete, id, store)
+
+	if store.deleteCalls != 0 {
+		t.Errorf("deleteCalls = %d, want 0", store.deleteCalls)
+	}
+	if _, ok := store.objects[id]; !ok {
+		t.Errorf("object %q was deleted, want it kept", id)
 	}
 }
 
