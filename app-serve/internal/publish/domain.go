@@ -11,6 +11,8 @@
 package publish
 
 import (
+	"time"
+
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
@@ -61,10 +63,17 @@ type Record struct {
 	ID            string
 	AccountID     string
 	PublishID     string
+	PostMode      string
+	MediaType     string
+	Source        string
 	Status        Status
+	PrivacyLevel  string
+	Title         string
+	Description   string
 	FailReason    string
 	PostID        string
 	UploadedBytes int64
+	CreatedAt     time.Time
 }
 
 // NewAttempt starts a video or photo attempt in CREATED.
