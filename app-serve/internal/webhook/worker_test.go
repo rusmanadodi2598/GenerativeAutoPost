@@ -40,6 +40,22 @@ func (s *stubHandler) Handle(_ context.Context, _ Envelope, _ []byte) (Outcome, 
 	return OutcomeApplied, nil
 }
 
+// panicOnceHandler panics on its first call only, so a test can prove the
+// worker survived the panic by watching a second job complete.
+type panicOnceHandler struct {
+	calls atomic.Int64
+	armed bool
+}
+
+func (p *panicOnceHandler) Handle(_ context.Context, _ Envelope, _ []byte) (Outcome, error) {
+	p.calls.Add(1)
+	if p.armed {
+		p.armed = false
+		panic("stub dispatch panic")
+	}
+	return OutcomeApplied, nil
+}
+
 // blockingHandler holds one job open until released, so a test can cancel the
 // pool around it and prove Run waits for in flight work.
 type blockingHandler struct {
@@ -142,7 +158,8 @@ func TestWorker_EnqueueGivenFullQueue_ThenOverflowReportsFalse(t *testing.T) {
 }
 
 func TestWorker_GivenPanickingJob_ThenPoolRecoversAndKeepsRunning(t *testing.T) {
-	w, buf := newTestWorker(t, &stubHandler{panic: true})
+	h := &panicOnceHandler{armed: true}
+	w, buf := newTestWorker(t, h)
 	stop := runPool(t, w)
 	defer stop()
 
@@ -155,6 +172,9 @@ func TestWorker_GivenPanickingJob_ThenPoolRecoversAndKeepsRunning(t *testing.T) 
 	if !w.Enqueue(context.Background(), queuedEvent("after")) {
 		t.Fatal("pool should still accept work after a recovered panic")
 	}
+	waitFor(t, "the job after the recovered panic", func() bool {
+		return h.calls.Load() >= 2
+	})
 }
 
 func TestWorker_GivenCancellationMidJob_ThenRunWaitsForInflightJob(t *testing.T) {

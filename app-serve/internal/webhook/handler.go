@@ -2,7 +2,7 @@
 //
 // @file      internal/webhook/handler.go
 // @for       Signature verification and envelope dispatch over HTTP.
-// @uses      encoding/json, io, log/slog, net/http, time, gin, internal/apierror
+// @uses      encoding/json, errors, io, log/slog, net/http, time, gin, internal/apierror
 // @reason    Gives TikTok one authenticated entry point for publish events.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     handler
@@ -12,6 +12,7 @@ package webhook
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -37,25 +38,27 @@ type accepted struct {
 	Status string `json:"status"`
 }
 
-// Handler verifies one webhook delivery and hands it to the dispatcher.
+// Handler verifies one webhook delivery and hands it to the dispatcher. It
+// holds no store: persistence belongs to the dispatcher, and the queue the
+// worker owns stays out of the intake path so backpressure cannot be faked
+// here.
 type Handler struct {
-	store    *Store
 	dispatch *Dispatcher
 	cfg      HandlerConfig
 	logger   *slog.Logger
 }
 
-// NewHandler wires the intake to the store, dispatcher, and logger. A nil
-// logger falls back to the process default and a zero tolerance falls back to
-// the contract default.
-func NewHandler(store *Store, dispatch *Dispatcher, cfg HandlerConfig, logger *slog.Logger) *Handler {
+// NewHandler wires the intake to the dispatcher and logger. A nil logger falls
+// back to the process default and a zero tolerance falls back to the contract
+// default.
+func NewHandler(dispatch *Dispatcher, cfg HandlerConfig, logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if cfg.Tolerance <= 0 {
 		cfg.Tolerance = defaultTolerance
 	}
-	return &Handler{store: store, dispatch: dispatch, cfg: cfg, logger: logger}
+	return &Handler{dispatch: dispatch, cfg: cfg, logger: logger}
 }
 
 // Receive authenticates the delivery then dispatches it. Verification runs
@@ -79,13 +82,26 @@ func (h *Handler) Receive(c *gin.Context) {
 	}
 	outcome, err := h.dispatch.Handle(c.Request.Context(), env, raw)
 	if err != nil {
-		h.logger.Error("webhook handling failed", "event", env.Event, "error", err.Error())
-		apierror.Write(c.Writer, c.Request,
-			apierror.New(apierror.CodeInternal, 0, "The webhook could not be processed."))
+		h.answerHandleError(c, env, outcome, err)
 		return
 	}
 	h.logger.Info("webhook delivery handled", "event", env.Event, "outcome", int(outcome))
 	c.JSON(http.StatusOK, accepted{Status: "accepted"})
+}
+
+// answerHandleError preserves the typed error from the dispatcher so a
+// permanently malformed payload answers 502 and TikTok stops hammering it as
+// a 500, and only a bare error becomes a generic 500.
+func (h *Handler) answerHandleError(c *gin.Context, env Envelope, outcome Outcome, err error) {
+	h.logger.Error("webhook handling failed", "event", env.Event,
+		"outcome", int(outcome), "error", err.Error())
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		apierror.Write(c.Writer, c.Request, apiErr)
+		return
+	}
+	apierror.Write(c.Writer, c.Request,
+		apierror.New(apierror.CodeInternal, 0, "The webhook could not be processed."))
 }
 
 // readBody reads at most MaxBodyBytes plus one byte. Reading one byte past the

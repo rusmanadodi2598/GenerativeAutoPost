@@ -2,7 +2,7 @@
 //
 // @file      internal/webhook/reconciler_test.go
 // @for       Unit tests for the unprocessed replay, open attempt sweep, and drain.
-// @uses      testing, context, errors, log/slog, sync, time
+// @uses      testing, context, errors, time
 // @reason    The terminal mapping and the published_at stamping are the risks.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     worker
@@ -13,106 +13,8 @@ package webhook
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"sync"
 	"testing"
-	"time"
 )
-
-// fakeSweepStore serves the three persistence calls the reconciler drives and
-// records the stamps it made.
-type fakeSweepStore struct {
-	mu        sync.Mutex
-	unhandled []Event
-	pending   []OutboxRecord
-	published []string
-}
-
-func (f *fakeSweepStore) Unprocessed(_ context.Context, _ time.Duration, _ int) ([]Event, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]Event(nil), f.unhandled...), nil
-}
-
-func (f *fakeSweepStore) OutboxPending(_ context.Context, _ int) ([]OutboxRecord, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]OutboxRecord(nil), f.pending...), nil
-}
-
-func (f *fakeSweepStore) MarkOutboxPublished(_ context.Context, id string, _ time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.published = append(f.published, id)
-	return nil
-}
-
-func (f *fakeSweepStore) publishedIDs() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.published...)
-}
-
-// fakeAttempts serves the open attempt sweep with fixed rows.
-type fakeAttempts struct {
-	rows []OpenAttempt
-	err  error
-}
-
-func (f *fakeAttempts) OpenAttempts(_ context.Context, _ time.Time, _ int) ([]OpenAttempt, error) {
-	return f.rows, f.err
-}
-
-// fakeFetcher answers with one canned status update or one error.
-type fakeFetcher struct {
-	update StatusUpdate
-	err    error
-	calls  int
-}
-
-func (f *fakeFetcher) FetchStatus(_ context.Context, _, _ string) (StatusUpdate, error) {
-	f.calls++
-	return f.update, f.err
-}
-
-// fakeGate records limiter refusals without a Redis client.
-type fakeGate struct {
-	err  error
-	seen []string
-}
-
-func (f *fakeGate) Allow(_ context.Context, accountID string) error {
-	f.seen = append(f.seen, accountID)
-	return f.err
-}
-
-// fakeProgress records polled byte counts.
-type fakeProgress struct {
-	writes []int64
-}
-
-func (f *fakeProgress) RecordProgress(_ context.Context, _ string, bytes int64) error {
-	f.writes = append(f.writes, bytes)
-	return nil
-}
-
-// newTestReconciler builds a reconciler over fakes with tiny sweep intervals.
-func newTestReconciler(store sweepStore, dispatch eventHandler, statuses StatusUpdater,
-	attempts OpenAttemptReader, fetch StatusFetcher, gate RateGate, progress ProgressRecorder,
-) *Reconciler {
-	r := NewReconciler(nil, nil, statuses, attempts, fetch, gate, progress,
-		ReconcilerConfig{Interval: time.Millisecond, BatchSize: 10, MaxAttempts: 3}, slog.Default())
-	r.store, r.dispatch = store, dispatch
-	return r
-}
-
-// openRow builds a stale open attempt for the sweep.
-func openRow(failures int) OpenAttempt {
-	return OpenAttempt{
-		PublishID: "pub-1", AccountID: "acc-1", AccessToken: "token",
-		Failures: failures,
-	}
-}
 
 func TestReconciler_GivenStaleUnprocessedRow_ThenItIsReplayed(t *testing.T) {
 	store := &fakeSweepStore{unhandled: []Event{
@@ -204,6 +106,46 @@ func TestReconciler_GivenRepeatedFetchFailure_ThenExhaustedReasonIsStamped(t *te
 	want := "failed:pub-1:RECONCILE_EXHAUSTED"
 	if len(statuses.calls) != 1 || statuses.calls[0] != want {
 		t.Fatalf("expected %q, got %v", want, statuses.calls)
+	}
+}
+
+func TestReconciler_GivenFetchFailure_ThenFailureCountPersistsAcrossSweeps(t *testing.T) {
+	attempts := &fakeAttempts{rows: []OpenAttempt{openRow(0)}}
+	fetch := &fakeFetcher{err: errors.New("upstream down")}
+	r := newTestReconciler(&fakeSweepStore{}, &stubHandler{}, &fakeStatuses{},
+		attempts, fetch, nil, nil)
+
+	for range 2 {
+		if err := r.ReconcileOnce(context.Background()); err != nil {
+			t.Fatalf("reconcile should succeed: %v", err)
+		}
+	}
+	if attempts.failures["pub-1"] != 2 {
+		t.Fatalf("failure count = %d, want 2 persisted across sweeps", attempts.failures["pub-1"])
+	}
+	if attempts.rows[0].Failures != 2 {
+		t.Fatalf("reader must return the stored count, got %d", attempts.rows[0].Failures)
+	}
+	if len(attempts.reasons) != 2 || attempts.reasons[1] == exhaustReason {
+		t.Fatalf("exhaust reason stamped before the cap, got %v", attempts.reasons)
+	}
+}
+
+func TestReconciler_GivenFailureCountAtCap_ThenExhaustFiresOnNextSweep(t *testing.T) {
+	statuses := &fakeStatuses{}
+	attempts := &fakeAttempts{rows: []OpenAttempt{openRow(2)}}
+	fetch := &fakeFetcher{err: errors.New("upstream down")}
+	r := newTestReconciler(&fakeSweepStore{}, &stubHandler{}, statuses, attempts, fetch, nil, nil)
+
+	if err := r.ReconcileOnce(context.Background()); err != nil {
+		t.Fatalf("reconcile should succeed: %v", err)
+	}
+	want := "failed:pub-1:RECONCILE_EXHAUSTED"
+	if len(statuses.calls) != 1 || statuses.calls[0] != want {
+		t.Fatalf("expected %q, got %v", want, statuses.calls)
+	}
+	if attempts.reasons[len(attempts.reasons)-1] != exhaustReason {
+		t.Fatalf("exhaust branch must record the exhausted reason, got %v", attempts.reasons)
 	}
 }
 

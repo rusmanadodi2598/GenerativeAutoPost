@@ -42,9 +42,10 @@ func intakeSetup(t *testing.T, secret string, store *fakeStore, statuses *fakeSt
 	t.Helper()
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	d := NewDispatcher(nil, statuses, DispatcherConfig{OutboxAggregate: "webhook_event"}, logger)
+	d := NewDispatcher(nil, statuses, fakeBinder{up: statuses},
+		DispatcherConfig{OutboxAggregate: "webhook_event"}, logger)
 	d.store = store
-	h := NewHandler(nil, d, HandlerConfig{Secret: secret}, logger)
+	h := NewHandler(d, HandlerConfig{Secret: secret}, logger)
 	return h, &logs
 }
 

@@ -2,7 +2,7 @@
 //
 // @file      internal/webhook/dispatcher_test.go
 // @for       Dispatcher unit tests with fakes for store and statuses.
-// @uses      testing, context, encoding/json, errors, log/slog
+// @uses      testing, context, errors
 // @reason    Event mapping and dedupe behavior are the risks here.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
@@ -12,79 +12,9 @@ package webhook
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"testing"
-	"time"
 )
-
-// fakeStore replays insert outcomes without a database.
-type fakeStore struct {
-	stored   bool
-	inserted []Event
-	outbox   []OutboxRecord
-	marked   []string
-}
-
-func (f *fakeStore) InsertIfNew(_ context.Context, ev Event) (bool, error) {
-	f.inserted = append(f.inserted, ev)
-	return f.stored, nil
-}
-
-func (f *fakeStore) CommitApplied(_ context.Context, dedupeKey string, rec OutboxRecord, _ time.Time) error {
-	f.outbox = append(f.outbox, rec)
-	f.marked = append(f.marked, dedupeKey)
-	return nil
-}
-
-// fakeStatuses records the updater calls each event triggers.
-type fakeStatuses struct {
-	calls    []string
-	applyErr error
-}
-
-func (f *fakeStatuses) record(call string) error {
-	f.calls = append(f.calls, call)
-	return f.applyErr
-}
-
-func (f *fakeStatuses) MarkPublishComplete(_ context.Context, p, post string) error {
-	return f.record("complete:" + p + ":" + post)
-}
-
-func (f *fakeStatuses) MarkPublishFailed(_ context.Context, p, reason string) error {
-	return f.record("failed:" + p + ":" + reason)
-}
-
-func (f *fakeStatuses) MarkInboxDelivered(_ context.Context, p string) error {
-	return f.record("delivered:" + p)
-}
-
-func (f *fakeStatuses) MarkUnpublished(_ context.Context, p, post string) error {
-	return f.record("unpublished:" + p + ":" + post)
-}
-
-// setup wires a dispatcher over the fakes. NewDispatcher takes the concrete
-// *Store, so the test swaps the seam the same package owns.
-func setup() (*Dispatcher, *fakeStore, *fakeStatuses) {
-	store := &fakeStore{stored: true}
-	statuses := &fakeStatuses{}
-	d := NewDispatcher(nil, statuses, DispatcherConfig{OutboxAggregate: "webhook_event"}, slog.Default())
-	d.store = store
-	return d, store, statuses
-}
-
-// envelopeFor builds an envelope whose content is a JSON encoded string,
-// matching the TikTok wire shape.
-func envelopeFor(t *testing.T, event, userOpenID string, createTime int64, content string) Envelope {
-	t.Helper()
-	inner, err := json.Marshal(content)
-	if err != nil {
-		t.Fatalf("marshal content: %v", err)
-	}
-	return Envelope{Event: event, UserOpenID: userOpenID, CreateTime: createTime, Content: inner}
-}
 
 func TestDedupeKeyShapes(t *testing.T) {
 	t.Parallel()
@@ -228,11 +158,39 @@ func TestHandleReturnsErrorWhenUpdaterFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("Handle returned nil, want updater error")
 	}
-	if outcome != OutcomeStored {
-		t.Fatalf("outcome = %v, want stored", outcome)
+	if outcome != OutcomeApplyFailed {
+		t.Fatalf("outcome = %v, want apply failed", outcome)
 	}
 	if len(store.outbox) != 0 || len(store.marked) != 0 {
 		t.Fatal("failed transition must not write the outbox row")
+	}
+	if len(store.deleted) != 1 {
+		t.Fatalf("failed apply must remove the stored row, got %v", store.deleted)
+	}
+}
+
+func TestHandle_GivenFailedApply_ThenRetryWithSameKeyAppliesOnce(t *testing.T) {
+	t.Parallel()
+	d, _, statuses := setup()
+	statuses.applyErr = errors.New("upstream unavailable")
+	env := envelopeFor(t, EventInboxDelivered, "u-1", 5, `{"publish_id":"p1"}`)
+	first, err := d.Handle(context.Background(), env, []byte(`{}`))
+	if err == nil {
+		t.Fatal("first Handle returned nil, want apply error")
+	}
+	if first != OutcomeApplyFailed {
+		t.Fatalf("first outcome = %v, want apply failed", first)
+	}
+	statuses.applyErr = nil
+	second, err := d.Handle(context.Background(), env, []byte(`{}`))
+	if err != nil {
+		t.Fatalf("retry Handle: %v", err)
+	}
+	if second != OutcomeApplied {
+		t.Fatalf("retry outcome = %v, want applied", second)
+	}
+	if len(statuses.calls) != 1 || statuses.calls[0] != "delivered:p1" {
+		t.Fatalf("retry must apply exactly once, got %v", statuses.calls)
 	}
 }
 

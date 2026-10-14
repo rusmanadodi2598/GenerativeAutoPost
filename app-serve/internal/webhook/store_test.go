@@ -4,7 +4,7 @@
 //
 // @file      internal/webhook/store_test.go
 // @for       Integration tests for webhook_events and outbox rows.
-// @uses      testing, context, time, pgxpool, github.com/google/uuid
+// @uses      testing, context, os, time, pgxpool, github.com/google/uuid
 // @reason    Dedupe conflicts and sweep cutoffs are the risks here.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     repository

@@ -109,6 +109,8 @@ func (w *Worker) Enqueue(_ context.Context, ev Event) bool {
 // Run starts the pool and blocks until ctx is done and every in flight job has
 // finished. Jobs run synchronously inside their worker, so the wait covers work
 // already started and Run returning is the pool's termination condition.
+// Whatever is still queued at that point is abandoned, so the count is logged:
+// a silent drop here reads as "handled" in the logs and is not.
 func (w *Worker) Run(ctx context.Context) {
 	w.wg.Add(w.cfg.Size)
 	for range w.cfg.Size {
@@ -118,6 +120,10 @@ func (w *Worker) Run(ctx context.Context) {
 		}()
 	}
 	w.wg.Wait()
+	if abandoned := len(w.queue); abandoned > 0 {
+		w.logger.Warn("webhook worker stopped with queued events abandoned",
+			"abandoned", abandoned)
+	}
 }
 
 // consume runs one worker's loop until the context is cancelled.

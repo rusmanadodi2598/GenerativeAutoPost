@@ -2,7 +2,7 @@
 //
 // @file      internal/webhook/dispatcher.go
 // @for       Event handling after signature verification.
-// @uses      context, encoding/json, log/slog, strconv, time, github.com/google/uuid
+// @uses      context, encoding/json, fmt, log/slog, strconv, time, github.com/google/uuid
 // @reason    Applies deduped webhook transitions and records the outbox row.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
@@ -29,6 +29,15 @@ type StatusUpdater interface {
 	MarkUnpublished(ctx context.Context, publishID string, postID string) error
 }
 
+// StatusBinder rebinds the publish updater to an open transaction, so the state
+// change commits with the outbox row and the processed stamp. The publish
+// repository supplies it by adapting its repository to the store's Tx; without
+// one the dispatcher refuses to apply rather than commit state outside the
+// transaction.
+type StatusBinder interface {
+	InTx(ctx context.Context, tx Tx) StatusUpdater
+}
+
 // DispatcherConfig carries dispatcher wiring beyond the store and statuses.
 type DispatcherConfig struct {
 	OutboxAggregate string
@@ -40,6 +49,8 @@ type Outcome int
 const (
 	OutcomeIgnored Outcome = iota
 	OutcomeDuplicate
+	OutcomeStoreFailed
+	OutcomeApplyFailed
 	OutcomeStored
 	OutcomeApplied
 )
@@ -50,25 +61,31 @@ const (
 // the unique dedupe_key in the store is the durable guard.
 type storeWriter interface {
 	InsertIfNew(ctx context.Context, ev Event) (bool, error)
-	CommitApplied(ctx context.Context, dedupeKey string, rec OutboxRecord, at time.Time) error
+	CommitApplied(ctx context.Context, dedupeKey string, rec OutboxRecord, at time.Time,
+		apply func(ctx context.Context, tx Tx) error) error
+	DeleteEvent(ctx context.Context, dedupeKey string) error
 }
 
 // Dispatcher applies verified webhook envelopes to publish state.
 type Dispatcher struct {
 	store   storeWriter
 	status  StatusUpdater
+	binder  StatusBinder
 	onAuth  func(ctx context.Context, userOpenID string) error
 	aggType string
 	logger  *slog.Logger
 }
 
-// NewDispatcher wires a dispatcher over the store, the status updater, and a
-// logger that falls back to the process default when nil.
-func NewDispatcher(store *Store, statuses StatusUpdater, cfg DispatcherConfig, logger *slog.Logger) *Dispatcher {
+// NewDispatcher wires a dispatcher over the store, the status updater, the
+// transaction binder, and a logger that falls back to the process default when
+// nil.
+func NewDispatcher(store *Store, statuses StatusUpdater, binder StatusBinder,
+	cfg DispatcherConfig, logger *slog.Logger) *Dispatcher {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Dispatcher{store: store, status: statuses, aggType: cfg.OutboxAggregate, logger: logger}
+	return &Dispatcher{store: store, status: statuses, binder: binder,
+		aggType: cfg.OutboxAggregate, logger: logger}
 }
 
 // OnAuthRemoved registers the account side handler for removed
@@ -91,23 +108,25 @@ func (d *Dispatcher) DedupeKey(env Envelope, publishID, postID string) string {
 	return env.Event + ":" + publishID + ":" + suffix
 }
 
-// transition is the single updater call and outbox row for one delivery.
+// transition is the single updater call and outbox row for one delivery. The
+// apply step takes the updater bound to the open transaction rather than the
+// process wide one.
 type transition struct {
 	eventType string
 	publishID string
 	postID    string
-	apply     func(ctx context.Context) error
+	apply     func(ctx context.Context, up StatusUpdater) error
 }
 
-// Handle dedupes the envelope, applies the state transition, then records the
-// outbox row in the same transaction as the processed stamp. Duplicate
-// deliveries return OutcomeDuplicate with no state change. Ignored events are
-// logged and acknowledged rather than returned as errors, so TikTok stops
-// retrying events this deployment never acts on.
+// Handle dedupes the envelope, then applies the state transition, the outbox
+// row, and the processed stamp in one transaction. Duplicate deliveries return
+// OutcomeDuplicate with no state change. Ignored events are logged and
+// acknowledged rather than returned as errors, so TikTok stops retrying events
+// this deployment never acts on.
 func (d *Dispatcher) Handle(ctx context.Context, env Envelope, raw []byte) (Outcome, error) {
 	trans, ignored, err := d.transitionFor(env)
 	if err != nil {
-		return OutcomeStored, err
+		return OutcomeStoreFailed, err
 	}
 	if ignored {
 		return OutcomeIgnored, nil
@@ -124,26 +143,60 @@ func (d *Dispatcher) Handle(ctx context.Context, env Envelope, raw []byte) (Outc
 		PublishID: trans.publishID, PostID: trans.postID, Payload: payload,
 	})
 	if err != nil {
-		return OutcomeStored, fmt.Errorf("webhook: storing delivery: %w", err)
+		return OutcomeStoreFailed, fmt.Errorf("webhook: storing delivery: %w", err)
 	}
 	if !stored {
 		d.logger.Info("webhook delivery duplicate, skipping state change",
 			"event", trans.eventType, "dedupe_key", dedupeKey)
 		return OutcomeDuplicate, nil
 	}
-	if err := trans.apply(ctx); err != nil {
-		return OutcomeStored, fmt.Errorf("webhook: applying transition: %w", err)
+	apply, err := d.applyFn(trans)
+	if err != nil {
+		d.discard(ctx, dedupeKey, trans.eventType, err)
+		return OutcomeApplyFailed, err
 	}
-	if err := d.commit(ctx, eventID, dedupeKey, trans); err != nil {
-		return OutcomeStored, err
+	if err := d.commit(ctx, eventID, dedupeKey, trans, apply); err != nil {
+		d.discard(ctx, dedupeKey, trans.eventType, err)
+		return OutcomeApplyFailed, err
 	}
 	return OutcomeApplied, nil
 }
 
+// applyFn builds the transaction scoped apply step. A missing binder is a
+// wiring error: applying outside the transaction would let the state change
+// survive without its outbox row.
+func (d *Dispatcher) applyFn(trans transition) (func(ctx context.Context, tx Tx) error, error) {
+	if d.binder == nil {
+		return nil, fmt.Errorf("webhook: no transaction binder configured for event %q", trans.eventType)
+	}
+	return func(ctx context.Context, tx Tx) error {
+		if err := trans.apply(ctx, d.binder.InTx(ctx, tx)); err != nil {
+			return err
+		}
+		return nil
+	}, nil
+}
+
+// discard removes the stored row after a failed apply. Durability property: the
+// dedupe key must not outlive an unapplied delivery, or the retry answers as a
+// duplicate and the state change is lost for good.
+func (d *Dispatcher) discard(ctx context.Context, dedupeKey, eventType string, cause error) {
+	if err := d.store.DeleteEvent(ctx, dedupeKey); err != nil {
+		d.logger.Error("webhook apply failed and the stored row could not be removed",
+			"event", eventType, "dedupe_key", dedupeKey,
+			"apply_error", cause.Error(), "error", err.Error())
+		return
+	}
+	d.logger.Warn("webhook apply failed, stored row removed so the retry re-applies",
+		"event", eventType, "dedupe_key", dedupeKey, "error", cause.Error())
+}
+
 // commit writes the outbox row for the applied transition and stamps the event
-// processed. The outbox aggregate id is the event row id, which keeps the row
-// traceable back to the exact delivery that caused it.
-func (d *Dispatcher) commit(ctx context.Context, eventID, dedupeKey string, trans transition) error {
+// processed, in the same transaction as the state change. The outbox aggregate
+// id is the event row id, which keeps the row traceable back to the exact
+// delivery that caused it.
+func (d *Dispatcher) commit(ctx context.Context, eventID, dedupeKey string,
+	trans transition, apply func(ctx context.Context, tx Tx) error) error {
 	payload, err := json.Marshal(map[string]string{
 		"event": trans.eventType, "publish_id": trans.publishID, "post_id": trans.postID,
 	})
@@ -158,71 +211,8 @@ func (d *Dispatcher) commit(ctx context.Context, eventID, dedupeKey string, tran
 		AggregateType: aggType, AggregateID: eventID,
 		EventType: trans.eventType, Payload: payload,
 	}
-	if err := d.store.CommitApplied(ctx, dedupeKey, rec, time.Now().UTC()); err != nil {
+	if err := d.store.CommitApplied(ctx, dedupeKey, rec, time.Now().UTC(), apply); err != nil {
 		return fmt.Errorf("webhook: committing applied event: %w", err)
 	}
 	return nil
-}
-
-// transitionFor decodes the envelope and selects the updater call. The second
-// return reports an acknowledged no-op, which covers both unknown event names
-// and the Video Kit events the Content Posting flow never uses.
-func (d *Dispatcher) transitionFor(env Envelope) (transition, bool, error) {
-	switch env.Event {
-	case EventVideoUploadFailed, EventVideoPublishDone:
-		d.logger.Info("webhook event ignored, unused by content posting", "event", env.Event)
-		return transition{}, true, nil
-	case EventAuthRemoved:
-		return d.authTransition(env)
-	case EventComplete, EventPubliclyAvailable, EventFailed, EventInboxDelivered,
-		EventNoLongerPublicly:
-		return d.publishTransition(env)
-	default:
-		d.logger.Info("webhook event ignored, unknown type", "event", env.Event)
-		return transition{}, true, nil
-	}
-}
-
-// publishTransition maps a post.publish event to its updater call.
-func (d *Dispatcher) publishTransition(env Envelope) (transition, bool, error) {
-	var content PostPublishContent
-	if err := decodedContent(env, &content); err != nil {
-		return transition{}, false, err
-	}
-	t := transition{eventType: env.Event, publishID: content.PublishID, postID: content.PostID}
-	switch env.Event {
-	case EventComplete, EventPubliclyAvailable:
-		t.apply = func(ctx context.Context) error {
-			return d.status.MarkPublishComplete(ctx, content.PublishID, content.PostID)
-		}
-	case EventFailed:
-		t.apply = func(ctx context.Context) error {
-			return d.status.MarkPublishFailed(ctx, content.PublishID, content.Reason)
-		}
-	case EventInboxDelivered:
-		t.apply = func(ctx context.Context) error {
-			return d.status.MarkInboxDelivered(ctx, content.PublishID)
-		}
-	default:
-		t.apply = func(ctx context.Context) error {
-			return d.status.MarkUnpublished(ctx, content.PublishID, content.PostID)
-		}
-	}
-	return t, false, nil
-}
-
-// authTransition builds the account side transition for a removed authorization.
-func (d *Dispatcher) authTransition(env Envelope) (transition, bool, error) {
-	var content AuthorizationRemovedContent
-	if err := decodedContent(env, &content); err != nil {
-		return transition{}, false, err
-	}
-	t := transition{eventType: env.Event}
-	t.apply = func(ctx context.Context) error {
-		if d.onAuth == nil {
-			return nil
-		}
-		return d.onAuth(ctx, env.UserOpenID)
-	}
-	return t, false, nil
 }

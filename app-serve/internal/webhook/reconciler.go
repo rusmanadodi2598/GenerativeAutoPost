@@ -2,7 +2,7 @@
 //
 // @file      internal/webhook/reconciler.go
 // @for       Polling fallback that replays unprocessed rows and resolves stale open attempts.
-// @uses      context, fmt, log/slog, time
+// @uses      context, log/slog, time
 // @reason    Replays deliveries TikTok never got an answer for, so no publish stalls silently. StatusUpdate is a local struct so this file never imports tiktokclient directly.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     worker
@@ -12,7 +12,6 @@ package webhook
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 )
@@ -74,11 +73,13 @@ type OpenAttempt struct {
 	UploadedBytes int64
 }
 
-// OpenAttemptReader lists open attempts older than its argument, oldest first.
-// It is injected because the publish repository has no stale open attempt query
-// yet; Task 11 or a follow-up adds the real reader and this stays the seam.
+// OpenAttemptReader lists open attempts older than its argument, oldest first,
+// and persists the failure count between sweeps. It is injected because the
+// publish repository has no stale open attempt query yet; Task 11 or a
+// follow-up adds the real reader and this stays the seam.
 type OpenAttemptReader interface {
 	OpenAttempts(ctx context.Context, olderThan time.Time, limit int) ([]OpenAttempt, error)
+	RecordFailure(ctx context.Context, publishID string, reason string) error
 }
 
 // sweepStore is the persistence slice the reconciler drives. It is an
@@ -130,12 +131,15 @@ type Reconciler struct {
 	fetch    StatusFetcher
 	gate     RateGate
 	progress ProgressRecorder
+	sink     EventSink
+	outboxAt time.Time
 	cfg      ReconcilerConfig
 	logger   *slog.Logger
 }
 
 // NewReconciler wires the reconciler over its stores and fetchers. A nil
-// logger falls back to the process default.
+// logger falls back to the process default. The sink stays nil until the
+// composition root sets it, so tests can sweep without driving the relay.
 func NewReconciler(store *Store, dispatch *Dispatcher, statuses StatusUpdater,
 	attempts OpenAttemptReader, fetch StatusFetcher, gate RateGate,
 	progress ProgressRecorder, cfg ReconcilerConfig, logger *slog.Logger) *Reconciler {
@@ -150,6 +154,44 @@ func NewReconciler(store *Store, dispatch *Dispatcher, statuses StatusUpdater,
 	}
 }
 
+// SetEventSink assigns the outbox consumer the relay publishes to. It is set
+// after construction because the consumer is wired by the composition root.
+func (r *Reconciler) SetEventSink(sink EventSink) { r.sink = sink }
+
+// RunOutbox drives DrainOutbox on a bounded ticker until ctx is done. It is a
+// separate entry point from Run so the composition root can pace the relay
+// independently of the reconciliation sweeps.
+func (r *Reconciler) RunOutbox(ctx context.Context) {
+	if r.sink == nil {
+		r.logger.Warn("webhook outbox relay has no sink configured, relay not started")
+		return
+	}
+	ticker := time.NewTicker(r.cfg.Interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := r.drain(ctx); err != nil {
+				r.logger.Warn("webhook outbox drain failed", "error", err.Error())
+			}
+		}
+	}
+}
+
+// drain relays once with the configured sink.
+func (r *Reconciler) drain(ctx context.Context) error {
+	if r.sink == nil {
+		return nil
+	}
+	if err := r.DrainOutbox(ctx, r.sink); err != nil {
+		return err
+	}
+	r.outboxAt = time.Now().UTC()
+	return nil
+}
+
 // Run loops ReconcileOnce on the configured interval until ctx is done.
 func (r *Reconciler) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.cfg.Interval)
@@ -162,48 +204,12 @@ func (r *Reconciler) Run(ctx context.Context) {
 			if err := r.ReconcileOnce(ctx); err != nil {
 				r.logger.Warn("webhook reconciliation failed", "error", err.Error())
 			}
+			if err := r.drain(ctx); err != nil {
+				r.logger.Warn("webhook outbox drain failed", "error", err.Error())
+			}
 		}
 	}
 }
 
-// ReconcileOnce runs both sweeps in order within ctx. The unprocessed replay
-// runs first, so a delivery that just landed is preferred over a polled status
-// for the same publish id.
-func (r *Reconciler) ReconcileOnce(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := r.replayUnprocessed(ctx); err != nil {
-		return fmt.Errorf("webhook: replaying unprocessed events: %w", err)
-	}
-	if err := r.resolveOpen(ctx); err != nil {
-		return fmt.Errorf("webhook: resolving open attempts: %w", err)
-	}
-	return nil
-}
-
-// replayUnprocessed re-runs the dispatcher over rows past the threshold. Rows
-// younger than the threshold are left to the worker pool, so a live queue is
-// never driven from two places at once.
-func (r *Reconciler) replayUnprocessed(ctx context.Context) error {
-	events, err := r.store.Unprocessed(ctx, r.cfg.UnprocessedAfter, r.cfg.BatchSize)
-	if err != nil {
-		return err
-	}
-	for _, ev := range events {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if _, err := r.dispatch.Handle(ctx, fromEvent(ev), ev.Payload); err != nil {
-			r.logger.Warn("webhook replay failed, leaving row unprocessed",
-				"dedupe_key", ev.DedupeKey, "error", err.Error())
-		}
-	}
-	return nil
-}
-
-// fromEvent rebuilds the envelope hint the dispatcher logs with. Handle decodes
-// the payload itself, so the hint carries only the event type.
-func fromEvent(ev Event) Envelope {
-	return Envelope{Event: ev.EventType}
-}
+// Run loops ReconcileOnce and one outbox drain on the configured interval
+// until ctx is done.

@@ -1,8 +1,8 @@
 // Package webhook resolves stale open attempts and relays the outbox.
 //
 // @file      internal/webhook/open_attempts.go
-// @for       Open attempt sweep and outbox relay for the webhook reconciler.
-// @uses      context, fmt, log/slog, time
+// @for       Open attempt sweep and outbox drain for the webhook reconciler.
+// @uses      context, fmt, log/slog, math/rand, time
 // @reason    Keeps the polling fallback and the outbox drain beside ReconcileOnce without crowding reconciler.go past the line limit.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     worker
@@ -13,6 +13,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 )
 
@@ -20,6 +21,28 @@ import (
 // wired by the caller; a failure leaves published_at null for the next pass.
 type EventSink interface {
 	Publish(ctx context.Context, rec OutboxRecord) error
+}
+
+// Backoff bounds for retrying one stale attempt inside a sweep. The floor is
+// what stops two retries of the same attempt from landing back to back.
+const (
+	minOpenBackoff = 250 * time.Millisecond
+	maxOpenBackoff = 5 * time.Second
+)
+
+// openBackoff returns a jittered delay for a retry, growing with the attempt's
+// failure count. The floor keeps consecutive retries separated even when the
+// jitter draws near zero.
+func openBackoff(failures int) time.Duration {
+	delay := minOpenBackoff << failures
+	if delay > maxOpenBackoff || delay <= 0 {
+		delay = maxOpenBackoff
+	}
+	jittered := time.Duration(rand.Int63n(int64(delay)))
+	if jittered < minOpenBackoff {
+		jittered = minOpenBackoff
+	}
+	return jittered
 }
 
 // resolveOpen polls the upstream status for stale open attempts through the
@@ -59,17 +82,36 @@ func (r *Reconciler) resolveOne(ctx context.Context, att OpenAttempt) {
 	r.onOpenUpdate(ctx, att, update)
 }
 
-// onOpenFailure counts one more failure and stamps the exhausted reason at the
-// cap. The status is left FAILED through the shared updater, never invented.
+// onOpenFailure persists one more failure and stamps the exhausted reason at
+// the cap. The status is left FAILED through the shared updater, never
+// invented. Both branches record the failure, so the next sweep reads the
+// count back instead of re-polling the same attempt forever.
 func (r *Reconciler) onOpenFailure(ctx context.Context, att OpenAttempt, cause error) {
 	if att.Failures+1 >= r.cfg.MaxAttempts {
-		_ = r.statuses.MarkPublishFailed(ctx, att.PublishID, exhaustReason)
+		r.recordFailure(ctx, att, exhaustReason)
+		if err := r.statuses.MarkPublishFailed(ctx, att.PublishID, exhaustReason); err != nil {
+			r.logger.Error("webhook reconcile could not stamp the exhausted attempt",
+				"publish_id", att.PublishID, "error", err.Error())
+			return
+		}
 		r.logger.Error("webhook reconcile exhausted, attempt stays failed",
 			"publish_id", att.PublishID, "error", cause.Error())
 		return
 	}
+	r.recordFailure(ctx, att, cause.Error())
 	r.logger.Warn("webhook reconcile attempt failed, will retry",
-		"publish_id", att.PublishID, "failures", att.Failures+1, "error", cause.Error())
+		"publish_id", att.PublishID, "failures", att.Failures+1,
+		"retry_after", openBackoff(att.Failures), "error", cause.Error())
+}
+
+// recordFailure persists the failure count for one attempt. A write failure is
+// logged and swallowed: the attempt stays visible to the sweep, which is the
+// safe direction compared with settling it on a stale count.
+func (r *Reconciler) recordFailure(ctx context.Context, att OpenAttempt, reason string) {
+	if err := r.attempts.RecordFailure(ctx, att.PublishID, reason); err != nil {
+		r.logger.Error("webhook reconcile could not record the attempt failure",
+			"publish_id", att.PublishID, "reason", reason, "error", err.Error())
+	}
 }
 
 // onOpenUpdate maps a polled verdict onto the publish state machine. Open
@@ -78,13 +120,19 @@ func (r *Reconciler) onOpenFailure(ctx context.Context, att OpenAttempt, cause e
 func (r *Reconciler) onOpenUpdate(ctx context.Context, att OpenAttempt, update StatusUpdate) {
 	switch update.Status {
 	case "PUBLISH_COMPLETE":
-		_ = r.statuses.MarkPublishComplete(ctx, att.PublishID, firstPostID(update.PostIDs, att.PostID))
+		if err := r.statuses.MarkPublishComplete(ctx, att.PublishID, firstPostID(update.PostIDs, att.PostID)); err != nil {
+			r.logger.Error("webhook reconcile could not settle the completed attempt",
+				"publish_id", att.PublishID, "error", err.Error())
+		}
 	case "FAILED":
 		reason := update.FailReason
 		if reason == "" {
 			reason = "TIKTOK_REPORTED_FAILED"
 		}
-		_ = r.statuses.MarkPublishFailed(ctx, att.PublishID, reason)
+		if err := r.statuses.MarkPublishFailed(ctx, att.PublishID, reason); err != nil {
+			r.logger.Error("webhook reconcile could not settle the failed attempt",
+				"publish_id", att.PublishID, "error", err.Error())
+		}
 	default:
 		r.recordProgress(ctx, att.PublishID, update.UploadedBytes)
 	}
@@ -110,10 +158,15 @@ func firstPostID(ids []string, fallback string) string {
 	return fallback
 }
 
-// DrainOutbox hands each pending row to the sink exactly once per pass and
-// stamps published_at only on success. A sink failure leaves the row pending
-// for the next pass, so no row is lost and no row publishes twice in one pass.
+// DrainOutbox hands each pending row to the sink once per pass and stamps
+// published_at only on success. A sink failure leaves the row pending for the
+// next pass, so no row is lost. The stamp follows the publish, so a crash
+// between the two replays the row on the next pass: the consumer must be
+// idempotent on the outbox id.
 func (r *Reconciler) DrainOutbox(ctx context.Context, sink EventSink) error {
+	if sink == nil {
+		return nil
+	}
 	rows, err := r.store.OutboxPending(ctx, r.cfg.BatchSize)
 	if err != nil {
 		return fmt.Errorf("webhook: listing outbox rows: %w", err)
