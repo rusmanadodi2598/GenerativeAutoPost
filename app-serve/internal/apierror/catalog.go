@@ -20,6 +20,7 @@ const (
 	CodeForbidden              Code = "FORBIDDEN"
 	CodeNotFound               Code = "NOT_FOUND"
 	CodeConflict               Code = "CONFLICT"
+	CodeMediaNotStored         Code = "MEDIA_NOT_STORED"
 	CodeIdempotencyKeyReused   Code = "IDEMPOTENCY_KEY_REUSED"
 	CodeRateLimited            Code = "RATE_LIMITED"
 	CodeInternal               Code = "INTERNAL_ERROR"
@@ -57,6 +58,7 @@ var catalog = map[Code]catalogEntry{
 	CodeForbidden:              {403, "Forbidden", "forbidden"},
 	CodeNotFound:               {404, "Not found", "not-found"},
 	CodeConflict:               {409, "Conflict", "conflict"},
+	CodeMediaNotStored:         {500, "Media not stored", "media-not-stored"},
 	CodeIdempotencyKeyReused:   {409, "Idempotency key reused", "idempotency-key-reused"},
 	CodeRateLimited:            {429, "Rate limited", "rate-limited"},
 	CodeInternal:               {500, "Internal error", "internal-error"},
