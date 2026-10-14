@@ -22,13 +22,39 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
-// claim hashes the body and claims the idempotency key. A same key and same
-// body repeat replays the stored response; a changed body is a 409.
-func (s *Service) claim(ctx context.Context, key string, req any) (string, *InitResult, error) {
+// claimVideo claims the key for a video init body. The wrapper exists so the
+// hash is taken over a concrete schema struct rather than an untyped value.
+func (s *Service) claimVideo(ctx context.Context, key string, req InitVideoRequest) (string, *InitResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("publish: encoding init body: %w", err)
 	}
+	return s.begin(ctx, key, body)
+}
+
+// claimPhoto claims the key for a photo init body. The wrapper exists so the
+// hash is taken over a concrete schema struct rather than an untyped value.
+func (s *Service) claimPhoto(ctx context.Context, key string, req InitPhotoRequest) (string, *InitResult, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("publish: encoding init body: %w", err)
+	}
+	return s.begin(ctx, key, body)
+}
+
+// claimDraft claims the key for a draft init body. The wrapper exists so the
+// hash is taken over a concrete schema struct rather than an untyped value.
+func (s *Service) claimDraft(ctx context.Context, key string, req InitDraftRequest) (string, *InitResult, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", nil, fmt.Errorf("publish: encoding init body: %w", err)
+	}
+	return s.begin(ctx, key, body)
+}
+
+// begin claims an already-encoded body. A same key and same body repeat
+// replays the stored response; a changed body is a 409.
+func (s *Service) begin(ctx context.Context, key string, body []byte) (string, *InitResult, error) {
 	hash := BodyHash(body)
 	raw, err := s.idempotency.Begin(ctx, key, hash)
 	if errors.Is(err, ErrIdempotencyKeyReused) {

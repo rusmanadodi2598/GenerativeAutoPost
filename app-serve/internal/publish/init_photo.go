@@ -27,7 +27,7 @@ func (s *Service) InitPhoto(ctx context.Context, operatorID string, req InitPhot
 	if err := s.validate.Struct(req); err != nil {
 		return empty, invalid(err)
 	}
-	hash, replay, err := s.claim(ctx, key, req)
+	hash, replay, err := s.claimPhoto(ctx, key, req)
 	if err != nil || replay != nil {
 		return deref(replay), err
 	}
@@ -91,7 +91,7 @@ func (s *Service) InitDraft(ctx context.Context, operatorID string, req InitDraf
 	if err := s.validate.Struct(req); err != nil {
 		return empty, invalid(err)
 	}
-	hash, replay, err := s.claim(ctx, key, req)
+	hash, replay, err := s.claimDraft(ctx, key, req)
 	if err != nil || replay != nil {
 		return deref(replay), err
 	}
@@ -133,7 +133,7 @@ func (s *Service) InitVideo(ctx context.Context, operatorID string, req InitVide
 	if err := s.validate.Struct(req); err != nil {
 		return empty, invalid(err)
 	}
-	hash, replay, err := s.claim(ctx, key, req)
+	hash, replay, err := s.claimVideo(ctx, key, req)
 	if err != nil || replay != nil {
 		return deref(replay), err
 	}

@@ -1,11 +1,11 @@
 // Package publish stores upload chunks and proxies them to the TikTok upload window.
 //
 // @file      internal/publish/chunks.go
-// @for       publish_chunks persistence and the PutChunk upload proxy.
+// @for       The PutChunk upload proxy: window checks, forwarding, bookkeeping.
 // @uses      context, fmt, sync, time, pgx, uuid, internal/apierror, internal/tiktokclient
-// @reason    Chunk bookkeeping and chunk forwarding are one flow with one owner.
+// @reason    The proxy and its chunk rows share one file so one owner holds the flow.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
-// @layer     repository
+// @layer     service
 // @stability stable
 // @since     2026-10-12
 package publish
@@ -91,8 +91,10 @@ func scanChunk(row pgx.CollectableRow) (ChunkRecord, error) {
 // only backstop here.
 func (s *Service) PutChunk(ctx context.Context, operatorID string, attemptID string, index int, contentType string, data []byte) (ChunkPutResponse, error) {
 	var empty ChunkPutResponse
-	if index < 0 {
-		return empty, apierror.New(apierror.CodeConflict, 0, "Chunk index must not be negative.")
+	// A negative index is a validation fault here and at the handler, so both
+	// paths answer 422 VALIDATION_FAILED.
+	if index < 0 && index != chunkIndexUnset {
+		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Chunk index must not be negative.")
 	}
 	if s.chunks.store == nil || s.chunks.uploader == nil || s.chunks.attempts == nil {
 		return empty, apierror.New(apierror.CodeInternal, 0, "Chunk upload is not configured.")
@@ -106,7 +108,9 @@ func (s *Service) PutChunk(ctx context.Context, operatorID string, attemptID str
 	}
 	access, err := s.accounts.Owned(ctx, operatorID, rec.AccountID)
 	if err != nil {
-		return empty, err
+		// A foreign attempt answers 404, the same shape Show returns, so an
+		// id probe cannot tell a foreign attempt from a missing one.
+		return empty, apierror.New(apierror.CodeNotFound, 0, "Publish attempt not found.")
 	}
 	window, ok := s.chunks.plans.Get(ctx, attemptID)
 	if !ok || window.ChunkSize <= 0 || window.TotalBytes <= 0 {
@@ -115,6 +119,9 @@ func (s *Service) PutChunk(ctx context.Context, operatorID string, attemptID str
 	recorded, err := s.chunks.store.Chunks(ctx, attemptID)
 	if err != nil {
 		return empty, err
+	}
+	if index == chunkIndexUnset {
+		index = window.FirstChunk + len(recorded)
 	}
 	if index != window.FirstChunk+len(recorded) || index >= window.TotalChunks {
 		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Chunks must be uploaded in order.")

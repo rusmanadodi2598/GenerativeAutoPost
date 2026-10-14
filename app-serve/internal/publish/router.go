@@ -86,14 +86,21 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, operatorID, attemptID string) (Record, error)
 }
 
-// chunkIndex parses the optional index header. An empty header means the
-// service decides which index comes next.
+// chunkIndexUnset marks an absent header. The service resolves it to the
+// next expected index.
+const chunkIndexUnset = -1
+
+// chunkIndex parses the optional index header. An empty header returns the
+// chunkIndexUnset sentinel with true; an explicit negative value fails.
 func chunkIndex(raw string) (int, bool) {
 	if raw == "" {
-		return 0, true
+		return chunkIndexUnset, true
 	}
 	index, err := strconv.Atoi(raw)
-	return index, err == nil && index >= 0
+	if err != nil || index < 0 {
+		return 0, false
+	}
+	return index, true
 }
 
 // listLimit clamps the query limit to the 1..100 window.
