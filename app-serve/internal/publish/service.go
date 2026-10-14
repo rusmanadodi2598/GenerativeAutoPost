@@ -12,13 +12,12 @@ package publish
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
@@ -99,6 +98,46 @@ type Service struct {
 	idempotency IdempotencyClaimer
 	mediaHost   string
 	validate    *validator.Validate
+	chunks      chunkDeps
+}
+
+// chunkDeps is the collaborator set the PutChunk flow in chunks.go needs.
+type chunkDeps struct {
+	attempts AttemptStore
+	store    ChunkStore
+	plans    *MemoryPlanStore
+	uploader ChunkPutter
+	ttl      time.Duration
+	now      func() time.Time
+}
+
+// ChunkServiceConfig wires the chunk collaborators onto an existing Service.
+type ChunkServiceConfig struct {
+	Attempts AttemptStore
+	Chunks   ChunkStore
+	Plans    *MemoryPlanStore
+	Uploader ChunkPutter
+	TTL      time.Duration
+	Now      func() time.Time
+}
+
+// WithChunkProxy extends the Service with the chunk collaborators, so one
+// Service serves both the init flows and the chunk upload proxy.
+func (s *Service) WithChunkProxy(cfg ChunkServiceConfig) *Service {
+	if cfg.Plans == nil {
+		cfg.Plans = NewMemoryPlanStore()
+	}
+	if cfg.TTL <= 0 {
+		cfg.TTL = defaultUploadURLTTL
+	}
+	if cfg.Now == nil {
+		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
+	s.chunks = chunkDeps{
+		attempts: cfg.Attempts, store: cfg.Chunks, plans: cfg.Plans,
+		uploader: cfg.Uploader, ttl: cfg.TTL, now: cfg.Now,
+	}
+	return s
 }
 
 // Config wires one Service. MediaHost is the verified PULL_FROM_URL host.
@@ -120,57 +159,73 @@ func NewService(cfg Config) *Service {
 	}
 }
 
-// InitVideo validates and starts a direct video post or a media upload
-// session. Generated server sets is_aigc; the client cannot turn it off.
-func (s *Service) InitVideo(ctx context.Context, operatorID string, req InitVideoRequest, generated bool, key string) (InitResult, error) {
-	var empty InitResult
-	if err := s.validate.Struct(req); err != nil {
-		return empty, invalid(err)
-	}
-	hash, replay, err := s.claim(ctx, key, req)
-	if err != nil || replay != nil {
-		return deref(replay), err
-	}
-	if req.PostInfo.PrivacyLevel == "" {
-		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Privacy level is required for video posts.")
-	}
-	if err := s.checkPrivacy(ctx, req.AccountID, req.PostInfo.PrivacyLevel); err != nil {
-		return empty, err
-	}
-	if n := utf16Len(req.PostInfo.Title); n > maxVideoTitleLen {
-		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Title exceeds the 2200 character limit.")
-	}
-	if err := checkBrand(req.PostInfo); err != nil {
-		return empty, err
-	}
-	if err := s.checkMediaURL(req.Source, req.MediaURL); err != nil {
-		return empty, err
-	}
-	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
-	if err != nil {
-		return empty, err
-	}
-	upstream, err := s.poster.InitVideoPost(ctx, access, tiktokclient.VideoInitRequest{
-		PostInfo:   toPostInfo(req.PostInfo, generated),
-		SourceInfo: toSourceInfo(req.Source, req.MediaURL),
-	})
-	if err != nil {
-		return empty, err
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return empty, fmt.Errorf("publish: generating attempt id: %w", err)
-	}
-	stored, err := s.attempts.Insert(ctx, Record{
-		ID: id.String(), AccountID: req.AccountID, PublishID: upstream.PublishID,
-		PostMode: modeDirectPost, MediaType: "VIDEO", Source: req.Source,
-		Status: StatusCreated, PrivacyLevel: req.PostInfo.PrivacyLevel, Title: req.PostInfo.Title,
-	})
-	if err != nil {
-		return empty, err
-	}
-	return s.finish(ctx, key, hash, InitResult{
-		ID: stored.ID, PublishID: upstream.PublishID, Status: StatusCreated,
-		UploadPlan: UploadPlan{Source: req.Source, ChunkSize: defaultChunkSize, TotalChunks: 1},
-	})
+// ChunkPutter forwards one validated chunk upstream to the upload URL.
+type ChunkPutter interface {
+	UploadChunk(ctx context.Context, uploadURL string, chunk tiktokclient.Chunk) error
+}
+
+// ChunkStore is the repository slice the chunk flow reads and writes.
+type ChunkStore interface {
+	RecordChunk(ctx context.Context, rec ChunkRecord) error
+	Chunks(ctx context.Context, attemptID string) ([]ChunkRecord, error)
+	UpdateProgress(ctx context.Context, attemptID string, uploadedBytes int64) error
+}
+
+// AttemptStore reads the attempt row the chunk flow validates against and
+// persists a restarted upload plan.
+type AttemptStore interface {
+	Get(ctx context.Context, id string) (Record, error)
+	Update(ctx context.Context, rec Record) error
+}
+
+var (
+	_ ChunkPutter  = (*tiktokclient.Client)(nil)
+	_ ChunkStore   = (*Repository)(nil)
+	_ AttemptStore = (*Repository)(nil)
+)
+
+// UploadWindow is the plan one upload URL was issued for: chunk size, chunk
+// count, and total bytes. The upload URL itself never leaves the server.
+type UploadWindow struct {
+	PublishID   string
+	UploadURL   string
+	ChunkSize   int64
+	TotalChunks int
+	TotalBytes  int64
+	ContentType string
+	FirstChunk  int
+	InitAt      time.Time
+}
+
+// Expired reports whether the upload URL is past its TTL at now.
+func (w UploadWindow) Expired(now time.Time, ttl time.Duration) bool {
+	return now.After(w.InitAt.Add(ttl))
+}
+
+// MemoryPlanStore keeps the live upload windows by attempt id. A reconciler
+// rebuilds a window from the attempt row, so no durable table holds the URLs.
+type MemoryPlanStore struct {
+	mu      sync.RWMutex
+	windows map[string]UploadWindow
+}
+
+// NewMemoryPlanStore returns an empty plan store.
+func NewMemoryPlanStore() *MemoryPlanStore {
+	return &MemoryPlanStore{windows: make(map[string]UploadWindow)}
+}
+
+// Get returns the window stored for an attempt.
+func (m *MemoryPlanStore) Get(_ context.Context, attemptID string) (UploadWindow, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	window, ok := m.windows[attemptID]
+	return window, ok
+}
+
+// Save stores or replaces the window of an attempt.
+func (m *MemoryPlanStore) Save(_ context.Context, attemptID string, window UploadWindow) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.windows[attemptID] = window
+	return nil
 }
