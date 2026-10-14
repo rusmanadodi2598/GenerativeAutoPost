@@ -35,3 +35,6 @@ go run ./cmd/app-serve
 Tests use `github.com/alicebob/miniredis/v2` as a test-only dependency for the
 Redis rate limiter: it runs the real Lua script and exercises window expiry,
 which a hand-rolled fake would not.
+
+The standard library cannot generate UUIDv7, so `github.com/google/uuid`
+provides the account row identifiers.

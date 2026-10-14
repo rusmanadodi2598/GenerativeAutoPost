@@ -39,8 +39,11 @@ func TestUpCreatesDomainTablesAndJournal(t *testing.T) {
 			t.Errorf("table %q is missing after Up", name)
 		}
 	}
-	if got := journalCount(t, pool); got != 3 {
-		t.Errorf("journal rows after Up = %d, want 3", got)
+	if got, want := journalCount(t, pool), migrationCount(t); got != want {
+		t.Errorf("journal rows after Up = %d, want %d", got, want)
+	}
+	if cols := columnNames(t, pool, "tiktok_accounts"); !cols["needs_reauth"] {
+		t.Error("tiktok_accounts is missing needs_reauth after Up")
 	}
 }
 
@@ -111,14 +114,15 @@ func TestUpTwiceIsNoOp(t *testing.T) {
 	if err := postgres.Up(ctx, pool, migrationsDir); err != nil {
 		t.Fatalf("first Up: %v", err)
 	}
-	if got := journalCount(t, pool); got != 3 {
-		t.Fatalf("journal rows after first Up = %d, want 3", got)
+	want := migrationCount(t)
+	if got := journalCount(t, pool); got != want {
+		t.Fatalf("journal rows after first Up = %d, want %d", got, want)
 	}
 	if err := postgres.Up(ctx, pool, migrationsDir); err != nil {
 		t.Fatalf("second Up: %v", err)
 	}
-	if got := journalCount(t, pool); got != 3 {
-		t.Errorf("journal rows after second Up = %d, want 3", got)
+	if got := journalCount(t, pool); got != want {
+		t.Errorf("journal rows after second Up = %d, want %d", got, want)
 	}
 	if !tableNames(t, pool)["users"] {
 		t.Error("users table disappeared after a repeated Up")
@@ -137,17 +141,20 @@ func TestDownRollsBackOneStep(t *testing.T) {
 		t.Fatalf("Down: %v", err)
 	}
 
+	// One Down step reverses the newest pair, which is the additive
+	// needs_reauth column; the insight tables belong to an older pair.
+	if cols := columnNames(t, pool, "tiktok_accounts"); cols["needs_reauth"] {
+		t.Error("needs_reauth survived a one-step Down")
+	}
 	names := tableNames(t, pool)
-	for _, gone := range []string{"video_stats", "creator_info_snapshots"} {
-		if names[gone] {
-			t.Errorf("table %q still present after one Down step", gone)
-		}
+	if !names["video_stats"] {
+		t.Error("video_stats was rolled back by a one-step Down")
 	}
 	if !names["users"] {
 		t.Error("users table was rolled back by a one-step Down")
 	}
-	if got := journalCount(t, pool); got != 2 {
-		t.Errorf("journal rows after one Down step = %d, want 2", got)
+	if got, want := journalCount(t, pool), migrationCount(t)-1; got != want {
+		t.Errorf("journal rows after one Down step = %d, want %d", got, want)
 	}
 }
 
@@ -162,8 +169,8 @@ func TestDownWithZeroStepsIsNoOp(t *testing.T) {
 	if err := postgres.Down(ctx, pool, migrationsDir, 0); err != nil {
 		t.Fatalf("Down with zero steps: %v", err)
 	}
-	if got := journalCount(t, pool); got != 3 {
-		t.Errorf("journal rows after a zero-step Down = %d, want 3", got)
+	if got, want := journalCount(t, pool), migrationCount(t); got != want {
+		t.Errorf("journal rows after a zero-step Down = %d, want %d", got, want)
 	}
 }
 
@@ -177,7 +184,7 @@ func TestDownAllStepsAllowsReapply(t *testing.T) {
 	if err := postgres.Up(ctx, pool, migrationsDir); err != nil {
 		t.Fatalf("Up: %v", err)
 	}
-	if err := postgres.Down(ctx, pool, migrationsDir, 3); err != nil {
+	if err := postgres.Down(ctx, pool, migrationsDir, migrationCount(t)); err != nil {
 		t.Fatalf("full Down: %v", err)
 	}
 	for name := range tableNames(t, pool) {

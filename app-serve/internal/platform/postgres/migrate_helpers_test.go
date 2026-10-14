@@ -15,6 +15,7 @@ package postgres_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,6 +82,40 @@ func tableNames(t *testing.T, pool *pgxpool.Pool) map[string]bool {
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate tables: %v", err)
+	}
+	return names
+}
+
+// migrationCount is the number of up pairs in the migrations directory, so a
+// new additive pair does not silently change the expected journal size.
+func migrationCount(t *testing.T) int {
+	t.Helper()
+	pairs, err := filepath.Glob(filepath.Join(migrationsDir, "*.up.sql"))
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	return len(pairs)
+}
+
+func columnNames(t *testing.T, pool *pgxpool.Pool, table string) map[string]bool {
+	t.Helper()
+	rows, err := pool.Query(context.Background(),
+		`SELECT column_name FROM information_schema.columns
+		  WHERE table_schema = 'public' AND table_name = $1`, table)
+	if err != nil {
+		t.Fatalf("query columns of %s: %v", table, err)
+	}
+	defer rows.Close()
+	names := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan column name: %v", err)
+		}
+		names[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate columns: %v", err)
 	}
 	return names
 }

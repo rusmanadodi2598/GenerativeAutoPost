@@ -12,6 +12,7 @@ package account
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -99,7 +100,12 @@ func (s *Service) UpsertAccount(ctx context.Context, operatorID string, tokens t
 	if err != nil {
 		return "", err
 	}
+	id, err := NewID()
+	if err != nil {
+		return "", fmt.Errorf("account: generating id: %w", err)
+	}
 	rec := Record{
+		ID:            id,
 		OperatorID:    operatorID,
 		OpenID:        tokens.OpenID,
 		Scopes:        copyStrings(grantedScopes),
