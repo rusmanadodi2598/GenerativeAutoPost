@@ -1,0 +1,193 @@
+//go:build integration
+
+// Package insight proves the snapshot store against PostgreSQL.
+//
+// @file      internal/insight/repository_test.go
+// @for       Integration tests for stats and creator snapshot rows.
+// @uses      testing, context, pgxpool, github.com/google/uuid, internal/apierror
+// @reason    Nil versus zero counts are easy to silently confuse, so the test pins the split.
+// @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
+// @layer     repository
+// @stability stable
+// @since     2026-10-12
+package insight
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
+)
+
+func testPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := os.Getenv("GENAUTO_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Fatal("GENAUTO_TEST_POSTGRES_DSN is not set")
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("opening pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func seedAccount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	userID := uuid.NewString()
+	accountID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
+		userID, "insight-9b-"+userID+"@example.com", "hash"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	const q = `INSERT INTO tiktok_accounts
+		(id, user_id, open_id, access_token_enc, access_token_expires_at,
+		 refresh_token_enc, refresh_expires_at, token_key_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, q, accountID, userID, "open-"+accountID, []byte("a"), now.Add(time.Hour),
+		[]byte("r"), now.Add(24*time.Hour), "k1"); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	return accountID
+}
+
+func intPtr(v int64) *int64 {
+	return &v
+}
+
+func wantInsightCode(t *testing.T, err error, code apierror.Code) {
+	t.Helper()
+	var apiErr *apierror.Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error %T %v is not *apierror.Error", err, err)
+	}
+	if apiErr.Code != code {
+		t.Fatalf("code = %s, want %s", apiErr.Code, code)
+	}
+}
+
+func TestStatsNilStaysNil(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	videoID := "video-" + uuid.NewString()
+	views := int64(120)
+	row, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: &views})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	got, err := repo.LatestStats(ctx, videoID)
+	if err != nil {
+		t.Fatalf("latest: %v", err)
+	}
+	if got.ID != row.ID || got.VideoID != videoID {
+		t.Fatalf("got %+v, want id %s video %s", got, row.ID, videoID)
+	}
+	if got.ViewCount == nil || *got.ViewCount != 120 {
+		t.Fatalf("view count = %+v, want 120", got.ViewCount)
+	}
+	if got.LikeCount != nil || got.CommentCount != nil || got.ShareCount != nil {
+		t.Fatalf("expected nil counts, got %+v", got)
+	}
+}
+
+func TestStatsNewerFetchedAtWins(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	videoID := "video-" + uuid.NewString()
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: intPtr(10),
+		FetchedAt: time.Now().UTC().Add(-time.Hour)}); err != nil {
+		t.Fatalf("insert older: %v", err)
+	}
+	newer, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: intPtr(42),
+		FetchedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("insert newer: %v", err)
+	}
+	got, err := repo.LatestStats(ctx, videoID)
+	if err != nil {
+		t.Fatalf("latest: %v", err)
+	}
+	if got.ID != newer.ID || *got.ViewCount != 42 {
+		t.Fatalf("got %+v, want id %s views 42", got, newer.ID)
+	}
+}
+
+func TestStatsZeroReadsBackNonNil(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	videoID := "video-" + uuid.NewString()
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, LikeCount: intPtr(0)}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	got, err := repo.LatestStats(ctx, videoID)
+	if err != nil {
+		t.Fatalf("latest: %v", err)
+	}
+	if got.LikeCount == nil {
+		t.Fatal("like count is nil, want non-nil 0")
+	}
+	if *got.LikeCount != 0 {
+		t.Fatalf("like count = %d, want 0", *got.LikeCount)
+	}
+}
+
+func TestStatsLatestUnknownVideoIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	_, err := repo.LatestStats(ctx, "video-"+uuid.NewString())
+	wantInsightCode(t, err, apierror.CodeNotFound)
+}
+
+func TestCreatorSnapshotRoundTripThenNewerWins(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	repo := NewRepository(pool)
+	accountID := seedAccount(t, ctx, pool)
+	first, err := repo.InsertCreatorSnapshot(ctx, CreatorSnapshot{
+		AccountID: accountID, PrivacyOptions: []string{"PUBLIC_TO_EVERYONE"},
+		CommentDisabled: true, MaxVideoPostDurationSec: 60,
+		FetchedAt: time.Now().UTC().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("insert first: %v", err)
+	}
+	second, err := repo.InsertCreatorSnapshot(ctx, CreatorSnapshot{
+		AccountID: accountID, PrivacyOptions: []string{"MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"},
+		DuetDisabled: true, StitchDisabled: true, MaxVideoPostDurationSec: 180,
+		FetchedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("insert second: %v", err)
+	}
+	got, err := repo.LatestCreatorSnapshot(ctx, accountID)
+	if err != nil {
+		t.Fatalf("latest: %v", err)
+	}
+	if got.ID != second.ID || first.ID == second.ID {
+		t.Fatalf("got id %s, want %s", got.ID, second.ID)
+	}
+	if len(got.PrivacyOptions) != 2 || got.PrivacyOptions[0] != "MUTUAL_FOLLOW_FRIENDS" {
+		t.Fatalf("options = %v", got.PrivacyOptions)
+	}
+	if !got.DuetDisabled || !got.StitchDisabled || got.CommentDisabled {
+		t.Fatalf("flags = %+v", got)
+	}
+	if got.MaxVideoPostDurationSec != 180 {
+		t.Fatalf("duration = %d, want 180", got.MaxVideoPostDurationSec)
+	}
+}
+
+func TestCreatorSnapshotLatestUnknownAccountIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	_, err := repo.LatestCreatorSnapshot(ctx, uuid.NewString())
+	wantInsightCode(t, err, apierror.CodeNotFound)
+}
