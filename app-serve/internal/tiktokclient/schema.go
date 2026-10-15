@@ -166,12 +166,13 @@ type Video struct {
 	Title         string `json:"title,omitempty"`
 	EmbedHTML     string `json:"embed_html,omitempty"`
 	EmbedLink     string `json:"embed_link,omitempty"`
-	// Counts keep omitempty so an absent count stays absent, never zero (002 section 7).
-	LikeCount    int64 `json:"like_count,omitempty"`
-	CommentCount int64 `json:"comment_count,omitempty"`
-	ShareCount   int64 `json:"share_count,omitempty"`
-	ViewCount    int64 `json:"view_count,omitempty"`
-	IsAIGC       bool  `json:"is_aigc,omitempty"`
+	// Counts are pointers so a field TikTok omits stays nil downstream, never a
+	// zero the console would read as a real measurement (002 section 7).
+	LikeCount    *int64 `json:"like_count,omitempty"`
+	CommentCount *int64 `json:"comment_count,omitempty"`
+	ShareCount   *int64 `json:"share_count,omitempty"`
+	ViewCount    *int64 `json:"view_count,omitempty"`
+	IsAIGC       bool   `json:"is_aigc,omitempty"`
 }
 
 // VideoPage is one page of the account's video list.

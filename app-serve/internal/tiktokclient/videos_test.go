@@ -47,7 +47,7 @@ func TestListVideos(t *testing.T) {
 				if err != nil {
 					t.Fatalf("ListVideos: %v", err)
 				}
-				if len(got.Videos) != 1 || got.Videos[0].ID != "v-1" || got.Videos[0].LikeCount != 11 {
+				if len(got.Videos) != 1 || got.Videos[0].ID != "v-1" || got.Videos[0].LikeCount == nil || *got.Videos[0].LikeCount != 11 {
 					t.Fatalf("videos = %+v", got.Videos)
 				}
 				if got.Cursor != 7 || !got.HasMore {
