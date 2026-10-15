@@ -1,0 +1,58 @@
+# Local stack for GenerativeAutoPost: app-serve, PostgreSQL 17, Redis 7.
+# app-ui joins later as a second build; the nginx map below already points at it.
+# Never commit real secrets here: every value comes from the host .env file.
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${GENAUTO_DB_USER:-genauto}
+      POSTGRES_PASSWORD: ${GENAUTO_DB_PASSWORD:?set GENAUTO_DB_PASSWORD in .env}
+      POSTGRES_DB: ${GENAUTO_DB_NAME:-genauto}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app-serve:
+    build:
+      context: ../app-serve
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../app-serve/.env
+    environment:
+      DATABASE_URL: postgres://${GENAUTO_DB_USER:-genauto}:${GENAUTO_DB_PASSWORD:?set GENAUTO_DB_PASSWORD in .env}@postgres:5432/${GENAUTO_DB_NAME:-genauto}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${GENAUTO_APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

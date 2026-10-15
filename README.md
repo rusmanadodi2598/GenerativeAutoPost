@@ -15,6 +15,8 @@ GenerativeAutoPost is a backend and admin UI for generating and scheduling autom
 
 - Specifications: [`docs/SPEC/`](docs/SPEC/)
 - Architecture decisions: [`docs/DECISIONS/`](docs/DECISIONS/)
+- Changelog: [`docs/CHANGELOG/`](docs/CHANGELOG/)
+- Design direction brief (awaiting owner input): [`DESIGN.md`](DESIGN.md)
 
 ## Quality gates
 
@@ -24,8 +26,24 @@ Run all gates from the repository root with:
 scripts/gates/all.sh
 ```
 
-The gates script is added in a later task of the implementation plan.
+The gates cover `go vet`, `gofmt`, `staticcheck`, `golangci-lint`, the 250 line
+source limit, the AGENTS.md file header, comment hygiene, `go test -race`, and a
+gitleaks pass. The integration suite is skipped unless `GENAUTO_TEST_POSTGRES_DSN`
+is set.
+
+## Local stack
+
+```bash
+cp app-serve/.env.example app-serve/.env
+# Fill GENAUTO_DB_PASSWORD and the TikTok credentials in app-serve/.env.
+GENAUTO_DB_PASSWORD=local-only-secret docker-compose -f deployment/docker-compose.yml up --build
+curl http://localhost:8080/healthz
+```
+
+See [`deployment/README.md`](deployment/README.md) for the nginx edge config.
 
 ## Webhooks
 
-Webhook callbacks are served from `<webhook-host>`. Replace this placeholder with the public host once it is provisioned.
+Webhook callbacks are served from `https://app-tiktok.kentangtech.com/webhooks/tiktok`,
+outside the `/api/v1` version prefix. Replace the host in
+`deployment/nginx/app-tiktok.conf` if it moves.
