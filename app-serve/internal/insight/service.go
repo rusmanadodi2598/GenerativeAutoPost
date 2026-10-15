@@ -56,7 +56,7 @@ func NewService(cfg Config) *Service {
 // is proven before any upstream call happens.
 func (s *Service) access(ctx context.Context, operatorID, accountID string) (string, error) {
 	if _, err := uuid.Parse(accountID); err != nil {
-		return "", apierror.New(apierror.CodeValidationFailed, 0, "An account id is required.").
+		return "", apierror.New(apierror.CodeValidationFailed, 0, "The account id is invalid.").
 			Wrap(fmt.Errorf("insight: parsing account id: %w", err))
 	}
 	return s.cfg.Accounts.Owned(ctx, operatorID, accountID)

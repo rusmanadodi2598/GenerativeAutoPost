@@ -86,9 +86,10 @@ type Reconciler interface {
 	Reconcile(ctx context.Context, operatorID, attemptID string) (Record, error)
 }
 
-// chunkIndexUnset marks an absent header. The service resolves it to the
-// next expected index.
-const chunkIndexUnset = -1
+// chunkIndexUnset marks an absent header. It sits outside the range any
+// explicit header may carry, so -1 keeps its own meaning all the way into
+// the service. The service resolves the sentinel to the next expected index.
+const chunkIndexUnset = -2
 
 // chunkIndex parses the optional index header. An empty header returns the
 // chunkIndexUnset sentinel with true; an explicit negative value fails.

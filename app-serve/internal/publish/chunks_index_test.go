@@ -87,3 +87,14 @@ func TestChunkIndex_HeaderParsing(t *testing.T) {
 		t.Fatal("expected an explicit negative header to fail")
 	}
 }
+
+// TestPutChunk_ExplicitNegativeOne_RejectedAtService proves an explicit -1
+// reaches the service as a validation fault, not as the unset default.
+func TestPutChunk_ExplicitNegativeOne_RejectedAtService(t *testing.T) {
+	h := newChunkHarness()
+	_, err := h.put(-1, 100)
+	wantChunkCode(t, err, string(apierror.CodeValidationFailed))
+	if len(h.putter.calls) != 0 {
+		t.Fatalf("expected no upstream call, got %d", len(h.putter.calls))
+	}
+}

@@ -34,6 +34,8 @@ type operatorContextKey struct{}
 type SessionAccount func(*gin.Context) (string, bool)
 
 // successEnvelope is the shared success shape: typed data plus request meta.
+// The reason for the untyped member is the JSON boundary: every handler passes
+// a concrete view type, so nothing unvalidated reaches the wire.
 type successEnvelope struct {
 	Data any          `json:"data"`
 	Meta responseMeta `json:"meta"`
@@ -91,7 +93,8 @@ func operatorFrom(c *gin.Context) (string, bool) {
 }
 
 // bind decodes and validates one typed body. On failure the 422 problem is
-// already written, so the caller returns at once.
+// already written, so the caller returns at once. The reason for the untyped
+// target is the decode boundary: every caller passes a concrete schema struct.
 func bind(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
 		writeValidationError(c, err)
@@ -104,7 +107,9 @@ func bind(c *gin.Context, target any) bool {
 	return true
 }
 
-// writeSuccess writes the success envelope with fresh request metadata.
+// writeSuccess writes the success envelope with fresh request metadata. The
+// reason for the untyped data is the encode boundary: every caller passes a
+// view built by this package.
 func (h *Handler) writeSuccess(c *gin.Context, status int, data any) {
 	c.JSON(status, successEnvelope{
 		Data: data,

@@ -35,6 +35,8 @@ services:
       context: ../app-serve
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Interpolation (${...} below) reads the host shell, not this file, so
+    # keep the secrets in the host env too: GENAUTO_DB_PASSWORD=... docker-compose up.
     env_file:
       - ../app-serve/.env
     environment:

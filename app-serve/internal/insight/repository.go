@@ -70,7 +70,7 @@ func scanCreator(row pgx.Row) (CreatorSnapshot, error) {
 		account  uuid.UUID
 		options  []string
 		fetched  time.Time
-		duration int32
+		duration int
 	)
 	if err := row.Scan(&id, &account, &options, &snap.CommentDisabled, &snap.DuetDisabled,
 		&snap.StitchDisabled, &duration, &fetched); err != nil {
@@ -82,7 +82,7 @@ func scanCreator(row pgx.Row) (CreatorSnapshot, error) {
 		options = []string{}
 	}
 	snap.PrivacyOptions = options
-	snap.MaxVideoPostDurationSec = int(duration)
+	snap.MaxVideoPostDurationSec = duration
 	snap.FetchedAt = fetched
 	return snap, nil
 }
