@@ -50,10 +50,12 @@ type UserInfo struct {
 	DisplayName     string `json:"display_name"`
 	BioDescription  string `json:"bio_description,omitempty"`
 	ProfileDeepLink string `json:"profile_deep_link,omitempty"`
-	FollowerCount   int64  `json:"follower_count,omitempty"`
-	FollowingCount  int64  `json:"following_count,omitempty"`
-	LikesCount      int64  `json:"likes_count,omitempty"`
-	VideoCount      int64  `json:"video_count,omitempty"`
+	// Counts are pointers so a field TikTok omits stays nil downstream,
+	// the same never-zero rule the Video counts follow (002 section 7).
+	FollowerCount  *int64 `json:"follower_count,omitempty"`
+	FollowingCount *int64 `json:"following_count,omitempty"`
+	LikesCount     *int64 `json:"likes_count,omitempty"`
+	VideoCount     *int64 `json:"video_count,omitempty"`
 }
 
 type userInfoData struct {

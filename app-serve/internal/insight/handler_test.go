@@ -200,7 +200,7 @@ func TestRefreshRouteAppendsEveryTime(t *testing.T) {
 
 func TestProfileRouteMapsCounts(t *testing.T) {
 	h := newHarness(t)
-	h.tiktok.info = tiktokclient.UserInfo{OpenID: "open-1", DisplayName: "Ada", FollowerCount: 5}
+	h.tiktok.info = tiktokclient.UserInfo{OpenID: "open-1", DisplayName: "Ada", FollowerCount: int64Ptr(5)}
 	h.tiktok.creator = tiktokclient.CreatorInfo{PrivacyLevelOptions: []string{"PUBLIC"}}
 	rec := h.do(t, "GET", "/accounts/"+testAccount+"/profile", "")
 	if rec.Code != 200 {
@@ -210,7 +210,13 @@ func TestProfileRouteMapsCounts(t *testing.T) {
 	if data["follower_count"].(float64) != 5 || data["display_name"] != "Ada" {
 		t.Fatalf("data = %+v", data)
 	}
+	if _, present := data["following_count"]; present {
+		t.Fatalf("following_count is present: %+v", data)
+	}
 }
+
+// int64Ptr returns a pointer to a count value for the route fixtures below.
+func int64Ptr(value int64) *int64 { return &value }
 
 func TestProfileRouteRejectsMalformedAccountID(t *testing.T) {
 	h := newHarness(t)

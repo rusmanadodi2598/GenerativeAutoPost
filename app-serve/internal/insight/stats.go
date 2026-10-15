@@ -50,17 +50,23 @@ func (s *Service) fetchStats(ctx context.Context, access, videoID string) (StatS
 }
 
 // VideoStats serves the newest snapshot, or fetches one when there is none or
-// the stored point is older than the cache window.
+// the stored point is older than the cache window. A stale point that cannot
+// be refreshed is still served: its fetched_at is in the body, so the console
+// can show the data as old rather than losing it to an upstream outage.
 func (s *Service) VideoStats(ctx context.Context, operatorID, accountID, videoID string) (StatSnapshot, error) {
 	access, err := s.access(ctx, operatorID, accountID)
 	if err != nil {
 		return StatSnapshot{}, err
 	}
-	stored, err := s.cfg.Store.LatestStats(ctx, videoID)
-	if err == nil && s.cfg.Now().Sub(stored.FetchedAt) < s.cfg.StatsTTL {
+	stored, storeErr := s.cfg.Store.LatestStats(ctx, videoID)
+	if storeErr == nil && s.cfg.Now().Sub(stored.FetchedAt) < s.cfg.StatsTTL {
 		return stored, nil
 	}
-	return s.fetchStats(ctx, access, videoID)
+	fetched, err := s.fetchStats(ctx, access, videoID)
+	if err != nil && storeErr == nil {
+		return stored, nil
+	}
+	return fetched, err
 }
 
 // RefreshStats always fetches and appends, so the series keeps a point per
@@ -93,7 +99,9 @@ func (s *Service) Profile(ctx context.Context, operatorID, accountID string) (Pr
 		options = []string{}
 	}
 	now := s.cfg.Now()
-	if _, err := s.cfg.Store.InsertCreatorSnapshot(ctx, CreatorSnapshot{
+	// The snapshot is a cache for the publish forms, not the answer to this
+	// request, so a failed write must not fail a read TikTok already answered.
+	_, _ = s.cfg.Store.InsertCreatorSnapshot(ctx, CreatorSnapshot{
 		AccountID:               accountID,
 		PrivacyOptions:          options,
 		CommentDisabled:         creator.CommentDisabled,
@@ -101,19 +109,17 @@ func (s *Service) Profile(ctx context.Context, operatorID, accountID string) (Pr
 		StitchDisabled:          creator.StitchDisabled,
 		MaxVideoPostDurationSec: creator.MaxVideoPostDurationSec,
 		FetchedAt:               now,
-	}); err != nil {
-		return ProfileView{}, err
-	}
+	})
 	return ProfileView{
 		OpenID:                  info.OpenID,
 		DisplayName:             info.DisplayName,
 		AvatarURL:               info.AvatarURL,
 		BioDescription:          info.BioDescription,
 		ProfileDeepLink:         info.ProfileDeepLink,
-		FollowerCount:           info.FollowerCount,
-		FollowingCount:          info.FollowingCount,
-		LikesCount:              info.LikesCount,
-		VideoCount:              info.VideoCount,
+		FollowerCount:           ptr(info.FollowerCount),
+		FollowingCount:          ptr(info.FollowingCount),
+		LikesCount:              ptr(info.LikesCount),
+		VideoCount:              ptr(info.VideoCount),
 		CreatorUsername:         creator.CreatorUsername,
 		PrivacyLevelOptions:     options,
 		CommentDisabled:         creator.CommentDisabled,

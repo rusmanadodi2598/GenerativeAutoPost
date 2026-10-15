@@ -90,10 +90,10 @@ type ProfileView struct {
 	AvatarURL               string    `json:"avatar_url,omitempty"`
 	BioDescription          string    `json:"bio_description,omitempty"`
 	ProfileDeepLink         string    `json:"profile_deep_link,omitempty"`
-	FollowerCount           int64     `json:"follower_count"`
-	FollowingCount          int64     `json:"following_count"`
-	LikesCount              int64     `json:"likes_count"`
-	VideoCount              int64     `json:"video_count"`
+	FollowerCount           *int64    `json:"follower_count,omitempty"`
+	FollowingCount          *int64    `json:"following_count,omitempty"`
+	LikesCount              *int64    `json:"likes_count,omitempty"`
+	VideoCount              *int64    `json:"video_count,omitempty"`
 	CreatorUsername         string    `json:"creator_username,omitempty"`
 	PrivacyLevelOptions     []string  `json:"privacy_level_options"`
 	CommentDisabled         bool      `json:"comment_disabled"`

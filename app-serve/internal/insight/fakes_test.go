@@ -93,10 +93,11 @@ func (f *fakeAccounts) Owned(context.Context, string, string) (string, error) {
 
 // fakeStore keeps the snapshots in memory and counts the writes.
 type fakeStore struct {
-	stats    []StatSnapshot
-	creators []CreatorSnapshot
-	statsErr error
-	writes   int
+	stats       []StatSnapshot
+	creators    []CreatorSnapshot
+	statsErr    error
+	creatorsErr error
+	writes      int
 }
 
 // InsertStats appends the snapshot.
@@ -122,6 +123,9 @@ func (f *fakeStore) LatestStats(_ context.Context, videoID string) (StatSnapshot
 
 // InsertCreatorSnapshot appends the snapshot.
 func (f *fakeStore) InsertCreatorSnapshot(_ context.Context, rec CreatorSnapshot) (CreatorSnapshot, error) {
+	if f.creatorsErr != nil {
+		return CreatorSnapshot{}, f.creatorsErr
+	}
 	f.creators = append(f.creators, rec)
 	rec.ID = "creator-1"
 	return rec, nil

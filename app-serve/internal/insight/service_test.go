@@ -128,7 +128,27 @@ func TestRefreshStatsGivenStaleSnapshot_ThenAppendsANewPoint(t *testing.T) {
 	}
 }
 
-func TestVideoStatsGivenUpstreamError_ThenErrorPropagates(t *testing.T) {
+func TestVideoStatsGivenStaleSnapshotAndFailedRefetch_ThenStalePointIsServed(t *testing.T) {
+	h := newServiceHarness(t)
+	h.store.stats = []StatSnapshot{{
+		VideoID:   testVideo,
+		ViewCount: count(int64(10)),
+		FetchedAt: time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC),
+	}}
+	h.tiktok.err = apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is unavailable.")
+	snap, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo)
+	if err != nil {
+		t.Fatalf("VideoStats returned %v", err)
+	}
+	if *snap.ViewCount != 10 {
+		t.Fatalf("snapshot = %+v, want the stale point", snap)
+	}
+	if h.store.writes != 0 {
+		t.Fatalf("snapshot writes = %d", h.store.writes)
+	}
+}
+
+func TestVideoStatsGivenUpstreamErrorAndNoStoredPoint_ThenErrorPropagates(t *testing.T) {
 	h := newServiceHarness(t)
 	h.tiktok.err = apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is unavailable.")
 	if _, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo); err == nil {
@@ -139,10 +159,25 @@ func TestVideoStatsGivenUpstreamError_ThenErrorPropagates(t *testing.T) {
 	}
 }
 
+func TestProfileGivenSnapshotWriteFails_ThenProfileIsStillReturned(t *testing.T) {
+	h := newServiceHarness(t)
+	h.tiktok.info = tiktokclient.UserInfo{
+		OpenID: "open-1", DisplayName: "Ada", FollowerCount: count(int64(120)), LikesCount: count(int64(900)), VideoCount: count(int64(7)),
+	}
+	h.store.creatorsErr = apierror.New(apierror.CodeInternal, 0, "Snapshot write failed.")
+	profile, err := h.svc.Profile(context.Background(), testOperator, testAccount)
+	if err != nil {
+		t.Fatalf("Profile returned %v", err)
+	}
+	if profile.DisplayName != "Ada" {
+		t.Fatalf("profile = %+v", profile)
+	}
+}
+
 func TestProfileGivenCreatorInfo_ThenCountsAndPrivacyAreMapped(t *testing.T) {
 	h := newServiceHarness(t)
 	h.tiktok.info = tiktokclient.UserInfo{
-		OpenID: "open-1", DisplayName: "Ada", FollowerCount: 120, LikesCount: 900, VideoCount: 7,
+		OpenID: "open-1", DisplayName: "Ada", FollowerCount: count(int64(120)), LikesCount: count(int64(900)), VideoCount: count(int64(7)),
 	}
 	h.tiktok.creator = tiktokclient.CreatorInfo{
 		CreatorUsername: "ada", PrivacyLevelOptions: []string{"PUBLIC"},
@@ -152,8 +187,14 @@ func TestProfileGivenCreatorInfo_ThenCountsAndPrivacyAreMapped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Profile returned %v", err)
 	}
-	if profile.FollowerCount != 120 || profile.VideoCount != 7 {
-		t.Fatalf("profile = %+v", profile)
+	if profile.FollowerCount == nil || *profile.FollowerCount != 120 {
+		t.Fatalf("follower count = %v", profile.FollowerCount)
+	}
+	if profile.VideoCount == nil || *profile.VideoCount != 7 {
+		t.Fatalf("video count = %v", profile.VideoCount)
+	}
+	if profile.FollowingCount != nil {
+		t.Fatalf("following count = %v, want absent", *profile.FollowingCount)
 	}
 	if len(profile.PrivacyLevelOptions) != 1 || !profile.CommentDisabled {
 		t.Fatalf("creator record = %+v", profile)
