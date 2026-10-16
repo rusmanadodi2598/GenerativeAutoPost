@@ -62,6 +62,13 @@ The gate opens in the task that wires the R2 client from `S3_ENDPOINT`,
 adds a boot-time connectivity check so a bad credential fails at startup,
 not on the first upload.
 
+**Resolved 2026-10-16.** The gate is open. `internal/platform/r2` implements
+the S3 surface with an in-house AWS SigV4 signer over the standard library, so
+no AWS SDK dependency is added, and `compose.mediaStore` proves the
+credentials with a HeadBucket before returning the store. The `ObjectClient`
+put seam streams now (`io.Reader` plus a known size and the body SHA-256), so
+the adapter no longer buffers an object to hash it.
+
 ## Decision 3: stats series with a `range` enum and refresh-on-read
 
 **Adopted.** `GET /videos/{id}/stats` takes `range` as `7d | 30d | 90d`
@@ -109,5 +116,3 @@ the refresh-on-read rule. Open item 3 in section 12 is closed by this ADR.
 ## Open Questions
 
 1. Retention and downsampling policy for `video_stats` rows.
-2. Which S3 client to depend on for the R2 wiring, and whether the
-   `ObjectClient` put becomes streaming with a known size in that change.

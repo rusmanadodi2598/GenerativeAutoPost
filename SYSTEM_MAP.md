@@ -8,7 +8,7 @@ acceptable answer and a missing answer is not.
 
 - **Service in this map:** `app-serve` (Go, the only service with code today).
 - **Last reviewed:** 2026-10-16, `docs/DECISIONS/002` (upload idempotency,
-  stats series).
+  stats series, R2 object client).
 - **Specs this map summarises:** `docs/SPEC/001-BACKEND-ARCHITECTURE.md`,
   `002-TIKTOK-INTEGRATION.md`, `003-API-CONTRACT.md`.
 
@@ -38,7 +38,7 @@ acceptable answer and a missing answer is not.
 | PostgreSQL | `postgres:17` | `deployment/docker-compose.yml` |
 | Redis | `redis:7` | Sessions, rate limits, idempotency, dedupe, event stream |
 | nginx | `deployment/nginx/app-tiktok.conf` | TLS edge, `/api/v1` proxy, `/webhooks/tiktok` bypasses versioning |
-| Cloudflare R2 | not wired | `MEDIA_DRIVER=s3` fails at boot until the object client lands |
+| Cloudflare R2 | `internal/platform/r2` | SigV4 signed; `MEDIA_DRIVER=s3` proves credentials with a HeadBucket at boot |
 
 `/webhooks/tiktok` is mounted outside `/api/v1` on purpose: it is TikTok's
 contract, and it must not move when our version changes.
@@ -57,6 +57,7 @@ handler -> router`. A package may only import the layer to its left.
 | `internal/platform/redisx` | repository | Redis client and the key namespaces |
 | `internal/platform/ratelimit` | repository | Fixed-window counter over Redis |
 | `internal/platform/idempotency` | repository | Claim, replay, complete, release over Redis |
+| `internal/platform/r2` | repository | AWS SigV4 signing and Cloudflare R2 object requests |
 | `internal/platform/httpapi` | router | Engine, request id, access log, recovery |
 | `internal/platform/logging` | util | slog setup |
 | `internal/tiktokclient` | repository | Outbound TikTok calls, per-account limiter, error map |
@@ -152,7 +153,7 @@ Required indexes (per `AGENTS.md` 1.7): `tiktok_accounts(open_id)`,
 | TikTok OAuth (`/v2/oauth/`) | auth | client key plus secret | per call |
 | TikTok creator info, init, status | publish | account access token, decrypted from the vault | per call |
 | TikTok video list, query, user info | insight | account access token | per call |
-| Cloudflare R2 (S3 API) | media | `S3_*` config | not wired |
+| Cloudflare R2 (S3 API) | media | `S3_ACCESS_KEY` plus `S3_SECRET_KEY` SigV4 | per call |
 | Local disk | media | none | n/a |
 
 Every outbound call runs under a context with an explicit timeout and goes
@@ -247,13 +248,11 @@ assume it exists.
 1. **No operator login.** `auth` handles TikTok OAuth only. There is no
    password or SSO route and no seed for the `users` row; `OPERATOR_ID` comes
    from env. Tracked as `docs/SPEC/001` section 13.3 and `003` section 12.2.
-2. **No R2 object client.** `MEDIA_DRIVER=s3` fails at boot on purpose. The
-   `media` interface already supports it; only the client is missing.
-3. **No event stream consumer.** The outbox relay appends to
+2. **No event stream consumer.** The outbox relay appends to
    `genauto:stream:events`; nothing reads the stream yet. The publish state
    machine does not depend on a consumer.
-4. **No `sessions` mirror.** The table exists for audit; the code writes
+3. **No `sessions` mirror.** The table exists for audit; the code writes
    sessions to Redis only.
-5. **No `video_stats` retention.** The series grows without pruning.
-6. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
+4. **No `video_stats` retention.** The series grows without pruning.
+5. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
    (antislop R-37).

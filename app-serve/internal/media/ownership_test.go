@@ -13,6 +13,7 @@ package media
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -115,11 +116,11 @@ type failingObjectClient struct {
 	getErr error
 }
 
-func (f *failingObjectClient) PutObject(_ context.Context, _, _ string, _ []byte) error {
+func (f *failingObjectClient) PutObject(_ context.Context, _, _ string, _ io.Reader, _ int64, _ string) error {
 	return nil
 }
 
-func (f *failingObjectClient) GetObject(_ context.Context, _, _ string) ([]byte, error) {
+func (f *failingObjectClient) GetObject(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, f.getErr
 }
 

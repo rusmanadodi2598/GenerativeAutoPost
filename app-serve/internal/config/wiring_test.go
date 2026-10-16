@@ -42,9 +42,49 @@ func TestLoadWiringFields(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "s3 driver without a bucket",
-			mutate:  func(m map[string]string) { m["MEDIA_DRIVER"] = "s3" },
+			name: "s3 driver without a bucket",
+			mutate: func(m map[string]string) {
+				m["MEDIA_DRIVER"] = "s3"
+				m["S3_ENDPOINT"] = "https://account.r2.cloudflarestorage.com"
+				m["S3_ACCESS_KEY"] = "key"
+				m["S3_SECRET_KEY"] = "secret"
+			},
 			wantErr: true,
+		},
+		{
+			name: "s3 driver without an endpoint",
+			mutate: func(m map[string]string) {
+				m["MEDIA_DRIVER"] = "s3"
+				m["S3_BUCKET"] = "media"
+				m["S3_ACCESS_KEY"] = "key"
+				m["S3_SECRET_KEY"] = "secret"
+			},
+			wantErr: true,
+		},
+		{
+			name: "s3 driver without an access key",
+			mutate: func(m map[string]string) {
+				m["MEDIA_DRIVER"] = "s3"
+				m["S3_ENDPOINT"] = "https://account.r2.cloudflarestorage.com"
+				m["S3_BUCKET"] = "media"
+				m["S3_SECRET_KEY"] = "secret"
+			},
+			wantErr: true,
+		},
+		{
+			name: "s3 driver loads credentials and defaults the region",
+			mutate: func(m map[string]string) {
+				m["MEDIA_DRIVER"] = "s3"
+				m["S3_ENDPOINT"] = "https://account.r2.cloudflarestorage.com"
+				m["S3_BUCKET"] = "media"
+				m["S3_ACCESS_KEY"] = "key"
+				m["S3_SECRET_KEY"] = "secret"
+			},
+			check: func(t *testing.T, cfg config.Config) {
+				if cfg.S3Region != "auto" {
+					t.Errorf("S3Region = %q, want auto", cfg.S3Region)
+				}
+			},
 		},
 		{
 			name:   "disk driver loads caps and allowed types",

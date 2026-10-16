@@ -2,8 +2,8 @@
 //
 // @file      internal/media/s3.go
 // @for       Object store adapter that talks to buckets through ObjectClient.
-// @uses      io, strings, internal/apierror
-// @reason    The concrete ObjectClient arrives when a real R2 client is wired in Task 12, so this adapter stays thin and testable without an AWS SDK.
+// @uses      context, bytes, crypto/sha256, encoding/json, errors, io, strings, time, internal/apierror
+// @reason    Keeps the store contract thin so disk and object backends swap without touching the service.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     repository
 // @stability stable
@@ -13,6 +13,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -22,12 +24,16 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
+// maxSidecarBytes caps a sidecar read so a bad backend cannot stream an
+// unbounded metadata blob into memory. Real sidecars are a few hundred bytes.
+const maxSidecarBytes = 1 << 20
+
 // ObjectClient is the narrow PutObject/GetObject/DeleteObject surface the S3
-// adapter needs. A fake implements it in tests; production wires a real R2
-// client in Task 12.
+// adapter needs. PutObject takes the body's SHA-256 because the client signs
+// the request before the stream is sent and must not buffer it to hash it.
 type ObjectClient interface {
-	PutObject(ctx context.Context, bucket, key string, body []byte) error
-	GetObject(ctx context.Context, bucket, key string) ([]byte, error)
+	PutObject(ctx context.Context, bucket, key string, body io.Reader, size int64, contentSHA256 string) error
+	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
@@ -43,6 +49,12 @@ func NewS3(client ObjectClient, bucket, publicBase string) *S3 {
 	return &S3{client: client, bucket: bucket, publicBase: strings.TrimSuffix(publicBase, "/")}
 }
 
+// notFoundMarker lets an ObjectClient report a miss without media importing
+// the client package.
+type notFoundMarker interface {
+	NotFound() bool
+}
+
 // notFoundError marks a client failure that means the key was never stored.
 // Only such errors become NOT_FOUND; any other client failure is a storage
 // failure so a broken backend is never reported as a clean missing object.
@@ -53,28 +65,33 @@ func notFoundError(err error) bool {
 	if errors.Is(err, errObjectMissing) {
 		return true
 	}
+	var marker notFoundMarker
+	if errors.As(err, &marker) && marker.NotFound() {
+		return true
+	}
 	return strings.Contains(strings.ToLower(err.Error()), "not found") ||
 		strings.Contains(strings.ToLower(err.Error()), "no such")
 }
 
-// Put buffers the stream and writes it to bucket/keyForID(id), plus a sidecar
-// key holding the object's metadata.
+// Put streams the object to bucket/keyForID(id), then writes a sidecar key
+// holding the object's metadata. The stream is not buffered here: the caller's
+// recorded size and checksum let the client sign and send it as it arrives.
 func (s *S3) Put(ctx context.Context, obj MediaObject, r io.Reader) error {
 	if !validID(obj.ID) {
 		return apierror.New(apierror.CodeValidationFailed, 0, "media id is invalid")
 	}
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
+	if obj.ByteSize <= 0 || obj.ChecksumSHA256 == "" {
+		return apierror.New(apierror.CodeMediaNotStored, 0, "media object metadata is incomplete")
 	}
-	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID), body); err != nil {
+	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID), r, obj.ByteSize, obj.ChecksumSHA256); err != nil {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
 	}
 	meta, err := json.Marshal(obj)
 	if err != nil {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
 	}
-	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID)+sidecarSuffix, meta); err != nil {
+	sum := sha256.Sum256(meta)
+	if err := s.client.PutObject(ctx, s.bucket, keyForID(obj.ID)+sidecarSuffix, bytes.NewReader(meta), int64(len(meta)), hex.EncodeToString(sum[:])); err != nil {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be stored").Wrap(err)
 	}
 	return nil
@@ -87,12 +104,17 @@ func (s *S3) readSidecar(ctx context.Context, id string) MediaObject {
 	if err != nil {
 		return MediaObject{}
 	}
+	defer func() { _ = body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(body, maxSidecarBytes))
+	if err != nil {
+		return MediaObject{}
+	}
 	var obj MediaObject
-	_ = json.Unmarshal(body, &obj)
+	_ = json.Unmarshal(raw, &obj)
 	return obj
 }
 
-// Get fetches the key bytes and returns them as a read closer.
+// Get returns the key stream plus the metadata sidecar recorded with it.
 func (s *S3) Get(ctx context.Context, id string) (MediaObject, io.ReadCloser, error) {
 	if !validID(id) {
 		return MediaObject{}, nil, apierror.New(apierror.CodeValidationFailed, 0, "media id is invalid")
@@ -106,14 +128,13 @@ func (s *S3) Get(ctx context.Context, id string) (MediaObject, io.ReadCloser, er
 	}
 	obj := s.readSidecar(ctx, id)
 	obj.ID = id
-	obj.ByteSize = int64(len(body))
 	if obj.Storage == "" {
 		obj.Storage = MediaStorageS3
 	}
 	if obj.CreatedAt.IsZero() {
 		obj.CreatedAt = time.Now().UTC()
 	}
-	return obj, io.NopCloser(bytes.NewReader(body)), nil
+	return obj, body, nil
 }
 
 // Delete removes the key from the bucket.

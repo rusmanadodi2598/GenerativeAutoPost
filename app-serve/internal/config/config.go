@@ -180,11 +180,25 @@ func Load() (Config, error) {
 	if cfg.MediaDriver == "" {
 		cfg.MediaDriver = DriverDisk
 	}
+	if cfg.S3Region == "" {
+		cfg.S3Region = "auto"
+	}
 	if err := validate.Struct(cfg); err != nil {
 		return Config{}, fmt.Errorf("validating config: %w", err)
 	}
-	if cfg.MediaDriver == DriverS3 && cfg.S3Bucket == "" {
-		return Config{}, errors.New("S3_BUCKET is required when MEDIA_DRIVER=s3")
+	if cfg.MediaDriver == DriverS3 {
+		if cfg.S3Endpoint == "" {
+			return Config{}, errors.New("S3_ENDPOINT is required when MEDIA_DRIVER=s3")
+		}
+		if cfg.S3Bucket == "" {
+			return Config{}, errors.New("S3_BUCKET is required when MEDIA_DRIVER=s3")
+		}
+		if cfg.S3AccessKey == "" {
+			return Config{}, errors.New("S3_ACCESS_KEY is required when MEDIA_DRIVER=s3")
+		}
+		if cfg.S3SecretKey == "" {
+			return Config{}, errors.New("S3_SECRET_KEY is required when MEDIA_DRIVER=s3")
+		}
 	}
 	if cfg.MediaDriver == DriverDisk && cfg.MediaRoot == "" {
 		return Config{}, errors.New("MEDIA_ROOT is required when MEDIA_DRIVER=disk")

@@ -20,6 +20,7 @@ the service imports `net/http` server helpers; business logic stays in
 - `internal/apierror`: RFC 9457 writer and code catalog
 - `internal/platform/crypto`: AES-256-GCM keyring and HMAC checks
 - `internal/platform/postgres`, `internal/platform/redisx`: pool and client
+- `internal/platform/r2`: AWS SigV4 signer and the Cloudflare R2 object client
 - `internal/platform/logging`: slog JSON in production, text in development
 - `internal/platform/httpapi`: Gin engine and `GET /healthz`
 
@@ -38,3 +39,7 @@ which a hand-rolled fake would not.
 
 The standard library cannot generate UUIDv7, so `github.com/google/uuid`
 provides the account row identifiers.
+
+The R2 client signs with AWS SigV4 from `crypto/hmac`, `crypto/sha256`, and
+`net/http`. It is about 200 lines and verifiable against the AWS test-suite
+vector, so no AWS SDK is pulled in for three object operations.
