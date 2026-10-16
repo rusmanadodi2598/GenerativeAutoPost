@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,9 +30,20 @@ const journalTable = "schema_migrations"
 // apply the same file.
 const migrationLockKey int64 = 0x6D6967726174
 
+// migrationLockTimeout bounds the wait for the advisory lock. A stuck holder
+// would otherwise stall a booting replica until its context expires, and a
+// blocked pg_advisory_xact_lock ignores context cancellation in the server.
+const migrationLockTimeout = 10 * time.Second
+
 // Up applies every pending migration in dir, oldest filename first. Running it
 // against an already-applied directory is a no-op.
 func Up(ctx context.Context, pool *pgxpool.Pool, dir string) error {
+	return up(ctx, pool, dir, migrationLockTimeout)
+}
+
+// up applies pending migrations with an explicit lock wait bound, so a test
+// can exercise the timeout without holding a connection for the full default.
+func up(ctx context.Context, pool *pgxpool.Pool, dir string, lockTimeout time.Duration) error {
 	files, err := migrationFiles(dir, "up")
 	if err != nil {
 		return err
@@ -42,7 +54,7 @@ func Up(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := lockMigrations(ctx, tx); err != nil {
+	if err := lockMigrations(ctx, tx, lockTimeout); err != nil {
 		return err
 	}
 	if err := ensureJournal(ctx, tx); err != nil {
@@ -70,6 +82,11 @@ func Up(ctx context.Context, pool *pgxpool.Pool, dir string) error {
 // Down rolls back the most recently applied migrations, newest first. A
 // non-positive step count does nothing.
 func Down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int) error {
+	return down(ctx, pool, dir, steps, migrationLockTimeout)
+}
+
+// down rolls back migrations under the same bounded lock wait as up.
+func down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int, lockTimeout time.Duration) error {
 	if steps <= 0 {
 		return nil
 	}
@@ -83,7 +100,7 @@ func Down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int) error 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := lockMigrations(ctx, tx); err != nil {
+	if err := lockMigrations(ctx, tx, lockTimeout); err != nil {
 		return err
 	}
 	if err := ensureJournal(ctx, tx); err != nil {
@@ -108,8 +125,12 @@ func Down(ctx context.Context, pool *pgxpool.Pool, dir string, steps int) error 
 }
 
 // lockMigrations serializes whole runs behind one transaction-scoped advisory
-// key, so the journal read and the DDL apply cannot interleave.
-func lockMigrations(ctx context.Context, tx pgx.Tx) error {
+// key, so the journal read and the DDL apply cannot interleave. The lock wait
+// is bounded by lock_timeout, which the server applies to advisory locks too.
+func lockMigrations(ctx context.Context, tx pgx.Tx, timeout time.Duration) error {
+	if _, err := tx.Exec(ctx, "SELECT set_config('lock_timeout', $1, true)", timeout.String()); err != nil {
+		return fmt.Errorf("postgres: set migration lock timeout: %w", err)
+	}
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", migrationLockKey); err != nil {
 		return fmt.Errorf("postgres: acquire migration lock: %w", err)
 	}
