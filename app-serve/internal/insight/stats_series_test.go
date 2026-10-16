@@ -3,7 +3,7 @@
 // @file      internal/insight/stats_series_test.go
 // @for       Service tests for the ranged stats series and range parsing.
 // @uses      context, errors, testing, time, internal/apierror, internal/tiktokclient
-// @reason    Pins the window cut, the single refetch, and the range rejection.
+// @reason    Pins the window cut, the first-sighting fetch, and the range rejection.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
 // @stability stable
@@ -29,7 +29,6 @@ func TestStatsSeriesGivenPointsAcrossWindows_ThenOnlyTheWindowIsReturned(t *test
 		{VideoID: testVideo, ViewCount: count(int64(2)), FetchedAt: now.Add(-2 * 24 * time.Hour)},
 		{VideoID: testVideo, ViewCount: count(int64(3)), FetchedAt: now.Add(-30 * time.Second)},
 	}
-	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(int64(3))}}
 	series, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d)
 	if err != nil {
 		t.Fatalf("StatsSeries: %v", err)
@@ -44,7 +43,31 @@ func TestStatsSeriesGivenPointsAcrossWindows_ThenOnlyTheWindowIsReturned(t *test
 		t.Fatal("short history must not be marked truncated")
 	}
 	if len(h.tiktok.queryIDs) != 0 {
-		t.Fatalf("fresh latest point must skip the upstream, ids = %v", h.tiktok.queryIDs)
+		t.Fatalf("stored points must skip the upstream, ids = %v", h.tiktok.queryIDs)
+	}
+}
+
+func TestStatsSeriesGivenOnlyOutOfWindowPoints_ThenOneFetch(t *testing.T) {
+	h := newServiceHarness(t)
+	now := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	h.svc.cfg.Now = func() time.Time { return now }
+	h.store.stats = []StatSnapshot{{
+		VideoID: testVideo, ViewCount: count(int64(40)),
+		FetchedAt: now.Add(-8 * 24 * time.Hour),
+	}}
+	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(int64(41))}}
+	series, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d)
+	if err != nil {
+		t.Fatalf("StatsSeries: %v", err)
+	}
+	if len(series.Points) != 1 || *series.Points[0].ViewCount != 41 {
+		t.Fatalf("points = %+v, want the one fetched point", series.Points)
+	}
+	if h.store.writes != 1 {
+		t.Fatalf("writes = %d, want one fetch for an empty window", h.store.writes)
+	}
+	if series.Truncated {
+		t.Fatal("a single fetched point must not be marked truncated")
 	}
 }
 

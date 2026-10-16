@@ -52,11 +52,8 @@ func (s *Service) fetchStats(ctx context.Context, access, videoID string) (StatS
 	return s.cfg.Store.InsertStats(ctx, snapshotFromVideo(videos[0], s.cfg.Now()))
 }
 
-// StatsSeries reads the stored history for one window. The worker is the only
-// steady writer, so a read spends no upstream quota. A video with no stored
-// point at all gets one fetch and append, which is a first fetch rather than a
-// refetch, so the chart is never blank while a brand-new video waits for the
-// next tick. History is never refetched, only appended to.
+// StatsSeries reads the stored history for one window. A video with no point
+// in the window gets one fetch and append, never a refetch.
 func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoID string, window StatRange) (StatSeries, error) {
 	access, err := s.access(ctx, operatorID, accountID)
 	if err != nil {

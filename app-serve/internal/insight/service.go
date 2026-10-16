@@ -38,7 +38,7 @@ type Service struct {
 	cfg Config
 }
 
-// NewService wires the insight service, defaulting the clock and the cache window.
+// NewService wires the insight service, defaulting the clock.
 func NewService(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
