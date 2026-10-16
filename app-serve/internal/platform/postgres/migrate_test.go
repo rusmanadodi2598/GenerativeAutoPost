@@ -141,10 +141,13 @@ func TestDownRollsBackOneStep(t *testing.T) {
 		t.Fatalf("Down: %v", err)
 	}
 
-	// One Down step reverses the newest pair, which is the additive
-	// needs_reauth column; the insight tables belong to an older pair.
-	if cols := columnNames(t, pool, "tiktok_accounts"); cols["needs_reauth"] {
-		t.Error("needs_reauth survived a one-step Down")
+	// One Down step reverses the newest pair, the reconcile failure counter;
+	// the needs_reauth column and the insight tables belong to older pairs.
+	if cols := columnNames(t, pool, "publish_attempts"); cols["reconcile_failures"] {
+		t.Error("reconcile_failures survived a one-step Down")
+	}
+	if cols := columnNames(t, pool, "tiktok_accounts"); !cols["needs_reauth"] {
+		t.Error("needs_reauth was rolled back by a one-step Down")
 	}
 	names := tableNames(t, pool)
 	if !names["video_stats"] {
