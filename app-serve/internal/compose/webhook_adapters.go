@@ -56,24 +56,24 @@ func (a statusAdapter) FetchStatus(ctx context.Context, access, publishID string
 	}, nil
 }
 
-// limiter is the shared per-account budget the reconciler must respect.
+// limiter is the shared per-account budget background work must respect.
 type limiter interface {
 	Allow(ctx context.Context, accountID string, family tiktokclient.Family) (int64, error)
 }
 
-// gateAdapter drops the endpoint family and the remaining count the limiter
-// returns, since the reconciler only needs a yes or no.
+// gateAdapter wraps a limiter and an endpoint family as a rate gate,
+// dropping the remaining count since callers only need a yes or no.
 type gateAdapter struct {
 	limiter limiter
 	family  tiktokclient.Family
 }
 
-// newGateAdapter wraps a limiter as the reconciler rate gate.
+// newGateAdapter wraps a limiter and an endpoint family as a rate gate.
 func newGateAdapter(l limiter, family tiktokclient.Family) gateAdapter {
 	return gateAdapter{limiter: l, family: family}
 }
 
-// Allow reports whether one status read for this account is within budget.
+// Allow spends one call in this account's family budget.
 func (a gateAdapter) Allow(ctx context.Context, accountID string) error {
 	_, err := a.limiter.Allow(ctx, accountID, a.family)
 	return err

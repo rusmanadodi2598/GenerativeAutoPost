@@ -88,6 +88,18 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return problem.Code
 }
 
+// errorDetail pulls the error detail out of a recorded problem response.
+func errorDetail(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var problem struct {
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("decoding %s: %v", rec.Body.String(), err)
+	}
+	return problem.Detail
+}
+
 func TestListRouteReturnsEnvelope(t *testing.T) {
 	h := newHarness(t)
 	h.tiktok.page = tiktokclient.VideoPage{

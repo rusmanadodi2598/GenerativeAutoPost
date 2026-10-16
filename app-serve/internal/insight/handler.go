@@ -93,7 +93,7 @@ func (h *Handler) Stats(c *gin.Context) {
 	}
 	window, err := parseRange(c.Query("range"))
 	if err != nil {
-		writeValidation(c, "Stats range must be 7d.")
+		writeValidation(c, statRangeMessage)
 		return
 	}
 	series, err := h.svc.StatsSeries(c.Request.Context(), operatorID, c.Query("account_id"), c.Param("video_id"), window)

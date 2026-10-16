@@ -22,7 +22,7 @@ var userInfoFields = []string{
 	"profile_deep_link", "follower_count", "following_count", "likes_count", "video_count",
 }
 
-// videoQueryFields are the fields a query and a stats refetch ask for.
+// videoQueryFields are the fields a query and the stats sweep ask for.
 var videoQueryFields = []string{"id", "like_count", "comment_count", "share_count", "view_count"}
 
 // ptr returns a copy of the value behind a count, or nil when it is absent.

@@ -34,6 +34,9 @@ func (a accountIDs) List(ctx context.Context, operatorID string) ([]string, erro
 	}
 	ids := make([]string, 0, len(views))
 	for _, view := range views {
+		if view.Revoked {
+			continue
+		}
 		ids = append(ids, view.ID)
 	}
 	return ids, nil

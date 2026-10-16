@@ -201,7 +201,7 @@ type svcHarness struct {
 	store  *fakeStore
 }
 
-// newServiceHarness builds the service with a fixed clock and one minute cache.
+// newServiceHarness builds the service with a fixed clock.
 func newServiceHarness(t *testing.T) *svcHarness {
 	t.Helper()
 	h := &svcHarness{tiktok: &fakeTikTok{}, store: &fakeStore{}}

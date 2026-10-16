@@ -2,7 +2,7 @@
 //
 // @file      internal/insight/worker_test.go
 // @for       Sweep tests for refresh, paging, batching, and the list budget.
-// @uses      context, errors, fmt, testing, time, internal/tiktokclient
+// @uses      context, errors, fmt, io, log/slog, testing, time, internal/tiktokclient
 // @reason    Pins per-account isolation, the batch cap, and the prune cutoff.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     worker
@@ -14,6 +14,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -93,6 +95,7 @@ func newWorkerHarness(t *testing.T, accounts []string) *workerHarness {
 		Gate:       h.gate,
 		Store:      h.store,
 		Now:        func() time.Time { return now },
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	return h
 }
@@ -206,6 +209,9 @@ func TestSweepOnceGivenPagedCatalog_ThenEveryPageIsWalked(t *testing.T) {
 	}
 	if h.videos.listCalls != 2 {
 		t.Fatalf("list calls = %d, want 2", h.videos.listCalls)
+	}
+	if len(h.videos.listArgs) != 4 || h.videos.listArgs[3] != "5" {
+		t.Fatalf("list args = %v, want the second call cursor 5", h.videos.listArgs)
 	}
 	if len(h.videos.queryBatches) != 1 || len(h.videos.queryBatches[0]) != 2 {
 		t.Fatalf("query batches = %v, want both ids in one batch", h.videos.queryBatches)

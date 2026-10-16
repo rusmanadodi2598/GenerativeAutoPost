@@ -163,6 +163,7 @@ func TestDeleteStatsBeforeRemovesEveryVideoOlderThanCutoff(t *testing.T) {
 	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: freshID, ViewCount: intPtr(8), FetchedAt: now.Add(time.Hour)}); err != nil {
 		t.Fatalf("insert fresh: %v", err)
 	}
+	// The delete is table-wide; unique video ids plus `-p 1` keep it safe.
 	removed, err := repo.DeleteStatsBefore(ctx, now)
 	if err != nil {
 		t.Fatalf("delete: %v", err)

@@ -61,8 +61,7 @@ func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoI
 	}
 	days, ok := statRangeDays[window]
 	if !ok {
-		return StatSeries{}, apierror.New(apierror.CodeValidationFailed, 0,
-			"Stats range must be 7d.")
+		return StatSeries{}, apierror.New(apierror.CodeValidationFailed, 0, statRangeMessage)
 	}
 	since := s.cfg.Now().AddDate(0, 0, -days)
 	points, truncated, err := s.cfg.Store.ListStats(ctx, videoID, since, maxSeriesPoints)

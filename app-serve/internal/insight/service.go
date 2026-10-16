@@ -24,7 +24,7 @@ import (
 // maxQueryIDs caps one video query, per 002 section 7.
 const maxQueryIDs = 20
 
-// Config carries the service dependencies and the cache window.
+// Config carries the service dependencies and the creator snapshot TTL.
 type Config struct {
 	Videos     VideoClient
 	Accounts   AccountResolver

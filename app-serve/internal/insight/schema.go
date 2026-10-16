@@ -28,12 +28,13 @@ type StatSnapshot struct {
 }
 
 // StatRange is one of the closed window choices the stats series accepts.
-// The set is closed because point density follows the manual refresh rhythm:
-// a freeform window would promise coverage the append-only history cannot keep.
+// Point density follows the worker tick, so 7d is the only window retention can fill.
 type StatRange string
 
-// Supported stats windows. Retention is 7 days, so 7d is the only window that
-// can hold a full series; a longer range is a contract change, not a value.
+// statRangeMessage is the single client copy for an unsupported range.
+const statRangeMessage = "Stats range must be 7d."
+
+// Supported stats windows. A longer range is a contract change, not a value.
 const (
 	StatRange7d StatRange = "7d"
 )
@@ -56,8 +57,7 @@ func parseRange(raw string) (StatRange, error) {
 	}
 	window := StatRange(raw)
 	if _, ok := statRangeDays[window]; !ok {
-		return "", apierror.New(apierror.CodeValidationFailed, 0,
-			"Stats range must be 7d.")
+		return "", apierror.New(apierror.CodeValidationFailed, 0, statRangeMessage)
 	}
 	return window, nil
 }

@@ -47,6 +47,17 @@ func TestStatsRouteRejectsAnUnknownRange(t *testing.T) {
 	if rec.Code != 422 || errorCode(t, rec) != string(apierror.CodeValidationFailed) {
 		t.Fatalf("status = %d code = %s", rec.Code, errorCode(t, rec))
 	}
+	if got := errorDetail(t, rec); got != statRangeMessage {
+		t.Fatalf("detail = %q, want %q", got, statRangeMessage)
+	}
+}
+
+func TestStatsRouteGivenUnknownVideo_ThenNotFound(t *testing.T) {
+	h := newHarness(t)
+	rec := h.do(t, "GET", "/videos/"+testVideo+"/stats?account_id="+testAccount, "")
+	if rec.Code != 404 || errorCode(t, rec) != string(apierror.CodeNotFound) {
+		t.Fatalf("status = %d code = %s", rec.Code, errorCode(t, rec))
+	}
 }
 
 func TestStatsRouteServesStoredHistoryWithoutRefetch(t *testing.T) {

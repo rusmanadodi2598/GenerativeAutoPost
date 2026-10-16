@@ -146,8 +146,7 @@ func (r *Repository) ListStats(ctx context.Context, videoID string, since time.T
 }
 
 // DeleteStatsBefore prunes every point fetched before the cutoff and returns
-// how many rows left. The age bound is global even though the series window is
-// per video: retention is a property of the table, not of one chart.
+// how many rows left. The age bound is table-wide, not per-chart.
 func (r *Repository) DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	const q = `DELETE FROM video_stats WHERE fetched_at < $1`
 	tag, err := r.pool.Exec(ctx, q, cutoff)
