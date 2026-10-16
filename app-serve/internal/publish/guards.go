@@ -86,8 +86,10 @@ func (s *Service) finish(ctx context.Context, key, hash string, res InitResult) 
 }
 
 // checkPrivacy requires a privacy level drawn from the account options.
-func (s *Service) checkPrivacy(ctx context.Context, accountID, level string) error {
-	options, err := s.creators.Options(ctx, accountID)
+// Ownership is already resolved by the caller, so this only reads the options
+// and compares.
+func (s *Service) checkPrivacy(ctx context.Context, operatorID, accountID, level string) error {
+	options, err := s.creators.Options(ctx, operatorID, accountID)
 	if err != nil {
 		return err
 	}

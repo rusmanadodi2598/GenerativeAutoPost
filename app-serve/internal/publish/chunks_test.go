@@ -38,6 +38,14 @@ type fakeChunkStore struct {
 // Get returns the canned attempt row.
 func (f *fakeChunkStore) Get(context.Context, string) (Record, error) { return f.rec, nil }
 
+// GetByPublishID returns the canned row when its publish id matches.
+func (f *fakeChunkStore) GetByPublishID(_ context.Context, publishID string) (Record, error) {
+	if f.rec.PublishID != publishID {
+		return Record{}, apierror.New(apierror.CodeNotFound, 0, "Publish attempt not found.")
+	}
+	return f.rec, nil
+}
+
 // RecordChunk appends one accepted range.
 func (f *fakeChunkStore) RecordChunk(_ context.Context, rec ChunkRecord) error {
 	f.chunks = append(f.chunks, rec)

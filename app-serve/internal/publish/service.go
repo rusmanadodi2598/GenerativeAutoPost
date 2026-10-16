@@ -49,8 +49,10 @@ type AccountResolver interface {
 }
 
 // CreatorOptions returns the current privacy_level_options for the account.
+// The operator id travels with the lookup so the provider can enforce
+// ownership before it reads or refetches anything.
 type CreatorOptions interface {
-	Options(ctx context.Context, accountID string) ([]string, error)
+	Options(ctx context.Context, operatorID string, accountID string) ([]string, error)
 }
 
 // AttemptWriter persists one attempt row. *Repository satisfies it directly.
@@ -175,6 +177,7 @@ type ChunkStore interface {
 // persists a restarted upload plan.
 type AttemptStore interface {
 	Get(ctx context.Context, id string) (Record, error)
+	GetByPublishID(ctx context.Context, publishID string) (Record, error)
 	Update(ctx context.Context, rec Record) error
 }
 

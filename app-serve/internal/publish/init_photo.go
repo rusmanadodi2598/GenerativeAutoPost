@@ -35,7 +35,15 @@ func (s *Service) InitPhoto(ctx context.Context, operatorID string, req InitPhot
 		if req.PostInfo.PrivacyLevel == "" {
 			return empty, apierror.New(apierror.CodeValidationFailed, 0, "Privacy level is required for direct posts.")
 		}
-		if err := s.checkPrivacy(ctx, req.AccountID, req.PostInfo.PrivacyLevel); err != nil {
+	}
+	// Ownership resolves before the privacy verdict, so a foreign account
+	// answers NOT_FOUND instead of revealing which levels it supports.
+	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
+	if err != nil {
+		return empty, err
+	}
+	if req.PostMode == modeDirectPost {
+		if err := s.checkPrivacy(ctx, operatorID, req.AccountID, req.PostInfo.PrivacyLevel); err != nil {
 			return empty, err
 		}
 	}
@@ -49,10 +57,6 @@ func (s *Service) InitPhoto(ctx context.Context, operatorID string, req InitPhot
 		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Auto add music is only allowed for direct posts.")
 	}
 	if err := checkBrand(req.PostInfo.PostInfoRequest); err != nil {
-		return empty, err
-	}
-	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
-	if err != nil {
 		return empty, err
 	}
 	upstream, err := s.poster.InitPhotoPost(ctx, access, tiktokclient.PhotoInitRequest{
@@ -95,11 +99,13 @@ func (s *Service) InitDraft(ctx context.Context, operatorID string, req InitDraf
 	if err != nil || replay != nil {
 		return deref(replay), err
 	}
-	if err := s.checkMediaURL(req.Source, req.MediaURL); err != nil {
-		return empty, err
-	}
+	// Ownership resolves first: an unverified URL is a property of the request,
+	// while the ownership verdict is the one that must not vary by operator.
 	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
 	if err != nil {
+		return empty, err
+	}
+	if err := s.checkMediaURL(req.Source, req.MediaURL); err != nil {
 		return empty, err
 	}
 	upstream, err := s.poster.InitDraftUpload(ctx, access, tiktokclient.DraftInitRequest{
@@ -140,7 +146,13 @@ func (s *Service) InitVideo(ctx context.Context, operatorID string, req InitVide
 	if req.PostInfo.PrivacyLevel == "" {
 		return empty, apierror.New(apierror.CodeValidationFailed, 0, "Privacy level is required for video posts.")
 	}
-	if err := s.checkPrivacy(ctx, req.AccountID, req.PostInfo.PrivacyLevel); err != nil {
+	// Ownership resolves before the privacy verdict, so a foreign account
+	// answers NOT_FOUND instead of revealing which levels it supports.
+	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
+	if err != nil {
+		return empty, err
+	}
+	if err := s.checkPrivacy(ctx, operatorID, req.AccountID, req.PostInfo.PrivacyLevel); err != nil {
 		return empty, err
 	}
 	if n := utf16Len(req.PostInfo.Title); n > maxVideoTitleLen {
@@ -150,10 +162,6 @@ func (s *Service) InitVideo(ctx context.Context, operatorID string, req InitVide
 		return empty, err
 	}
 	if err := s.checkMediaURL(req.Source, req.MediaURL); err != nil {
-		return empty, err
-	}
-	access, err := s.accounts.Owned(ctx, operatorID, req.AccountID)
-	if err != nil {
 		return empty, err
 	}
 	upstream, err := s.poster.InitVideoPost(ctx, access, tiktokclient.VideoInitRequest{

@@ -109,7 +109,7 @@ type fakeCreators struct {
 }
 
 // Options returns the current privacy level options.
-func (f *fakeCreators) Options(context.Context, string) ([]string, error) {
+func (f *fakeCreators) Options(context.Context, string, string) ([]string, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
