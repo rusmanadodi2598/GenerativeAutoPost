@@ -113,16 +113,6 @@ func (f *fakeStore) InsertStats(_ context.Context, snap StatSnapshot) (StatSnaps
 	return snap, nil
 }
 
-// LatestStats returns the newest snapshot, or a not found error.
-func (f *fakeStore) LatestStats(_ context.Context, videoID string) (StatSnapshot, error) {
-	for i := len(f.stats) - 1; i >= 0; i-- {
-		if f.stats[i].VideoID == videoID {
-			return f.stats[i], nil
-		}
-	}
-	return StatSnapshot{}, apierror.New(apierror.CodeNotFound, 0, "Video stats not found.")
-}
-
 // ListStats returns the stored points inside the window, oldest first, capped
 // at limit. It mirrors the repository's newest-first read and reverse.
 func (f *fakeStore) ListStats(_ context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error) {
@@ -188,7 +178,6 @@ func newServiceHarness(t *testing.T) *svcHarness {
 		Accounts:   &fakeAccounts{access: "access-token"},
 		Store:      h.store,
 		Now:        func() time.Time { return time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC) },
-		StatsTTL:   time.Minute,
 		CreatorTTL: time.Minute,
 	})
 	return h

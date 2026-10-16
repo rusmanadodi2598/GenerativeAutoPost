@@ -47,7 +47,6 @@ func newHarnessWithSession(t *testing.T, resolve SessionAccount) *harness {
 		Accounts: &fakeAccounts{access: "access-token"},
 		Store:    h.store,
 		Now:      func() time.Time { return time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC) },
-		StatsTTL: time.Minute,
 	})
 	engine := gin.New()
 	RegisterRoutes(engine, NewHandler(h.svc, resolve))

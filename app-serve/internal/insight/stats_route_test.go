@@ -49,31 +49,28 @@ func TestStatsRouteRejectsAnUnknownRange(t *testing.T) {
 	}
 }
 
-func TestStatsRouteKeepsStoredHistoryBehindTheFreshestPoint(t *testing.T) {
+func TestStatsRouteServesStoredHistoryWithoutRefetch(t *testing.T) {
 	h := newHarness(t)
 	now := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
 	h.store.stats = []StatSnapshot{
 		{VideoID: testVideo, ViewCount: count(1), FetchedAt: now.Add(-time.Hour)},
 		{VideoID: testVideo, ViewCount: count(2), FetchedAt: now.Add(-2 * time.Minute)},
 	}
-	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(11)}}
 	rec := h.do(t, "GET", "/videos/"+testVideo+"/stats?account_id="+testAccount+"&range=7d", "")
 	if rec.Code != 200 {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 	data := decodeData(t, rec)
 	points, ok := data["points"].([]any)
-	if !ok || len(points) != 3 {
+	if !ok || len(points) != 2 {
 		t.Fatalf("points = %+v", data["points"])
 	}
-	// The stale newest point triggers exactly one refetch, and the older
-	// stored points still come back with it, oldest first.
-	if h.store.writes != 1 {
-		t.Fatalf("snapshot writes = %d, want 1", h.store.writes)
+	if h.store.writes != 0 {
+		t.Fatalf("snapshot writes = %d, want no refetch", h.store.writes)
 	}
 	first := points[0].(map[string]any)
-	last := points[2].(map[string]any)
-	if first["fetched_at"] != "2026-10-12T08:00:00Z" || last["fetched_at"] != "2026-10-12T09:00:00Z" {
+	last := points[1].(map[string]any)
+	if first["fetched_at"] != "2026-10-12T08:00:00Z" || last["fetched_at"] != "2026-10-12T08:58:00Z" {
 		t.Fatalf("points are not in ascending order: %+v", points)
 	}
 }

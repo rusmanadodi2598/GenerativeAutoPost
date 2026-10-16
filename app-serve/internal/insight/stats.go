@@ -34,7 +34,6 @@ type AccountResolver interface {
 // SnapshotStore is the repository slice the service reads and appends.
 type SnapshotStore interface {
 	InsertStats(ctx context.Context, snap StatSnapshot) (StatSnapshot, error)
-	LatestStats(ctx context.Context, videoID string) (StatSnapshot, error)
 	ListStats(ctx context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error)
 	DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	InsertCreatorSnapshot(ctx context.Context, rec CreatorSnapshot) (CreatorSnapshot, error)
@@ -53,32 +52,14 @@ func (s *Service) fetchStats(ctx context.Context, access, videoID string) (StatS
 	return s.cfg.Store.InsertStats(ctx, snapshotFromVideo(videos[0], s.cfg.Now()))
 }
 
-// VideoStats serves the newest snapshot, or fetches one when there is none or
-// the stored point is older than the cache window. A stale point that cannot
-// be refreshed is still served: its fetched_at is in the body, so the console
-// can show the data as old rather than losing it to an upstream outage.
-func (s *Service) VideoStats(ctx context.Context, operatorID, accountID, videoID string) (StatSnapshot, error) {
+// StatsSeries reads the stored history for one window. The worker is the only
+// steady writer, so a read spends no upstream quota. A video with no stored
+// point at all gets one fetch and append, which is a first fetch rather than a
+// refetch, so the chart is never blank while a brand-new video waits for the
+// next tick. History is never refetched, only appended to.
+func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoID string, window StatRange) (StatSeries, error) {
 	access, err := s.access(ctx, operatorID, accountID)
 	if err != nil {
-		return StatSnapshot{}, err
-	}
-	stored, storeErr := s.cfg.Store.LatestStats(ctx, videoID)
-	if storeErr == nil && s.cfg.Now().Sub(stored.FetchedAt) < s.cfg.StatsTTL {
-		return stored, nil
-	}
-	fetched, err := s.fetchStats(ctx, access, videoID)
-	if err != nil && storeErr == nil {
-		return stored, nil
-	}
-	return fetched, err
-}
-
-// StatsSeries reads the stored history for one window. Only the newest point is
-// freshness checked, so reading a chart appends at most one point and never
-// refetches history: the console can read a series as often as it likes
-// without spending TikTok status quota.
-func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoID string, window StatRange) (StatSeries, error) {
-	if _, err := s.access(ctx, operatorID, accountID); err != nil {
 		return StatSeries{}, err
 	}
 	days, ok := statRangeDays[window]
@@ -86,19 +67,17 @@ func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoI
 		return StatSeries{}, apierror.New(apierror.CodeValidationFailed, 0,
 			"Stats range must be 7d.")
 	}
-	latest, err := s.VideoStats(ctx, operatorID, accountID, videoID)
-	if err != nil {
-		return StatSeries{}, err
-	}
 	since := s.cfg.Now().AddDate(0, 0, -days)
 	points, truncated, err := s.cfg.Store.ListStats(ctx, videoID, since, maxSeriesPoints)
 	if err != nil {
 		return StatSeries{}, err
 	}
 	if len(points) == 0 {
-		// The newest point can predate the window; surfacing it keeps the
-		// console showing the last known value rather than an empty chart.
-		points = append(points, latest)
+		snap, err := s.fetchStats(ctx, access, videoID)
+		if err != nil {
+			return StatSeries{}, err
+		}
+		points = append(points, snap)
 	}
 	return StatSeries{VideoID: videoID, Range: window, Points: points, Truncated: truncated}, nil
 }

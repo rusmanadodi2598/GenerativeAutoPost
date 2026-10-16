@@ -112,19 +112,6 @@ func (r *Repository) InsertStats(ctx context.Context, snap StatSnapshot) (StatSn
 	return stored, nil
 }
 
-// LatestStats returns the most recently fetched point for a video.
-func (r *Repository) LatestStats(ctx context.Context, videoID string) (StatSnapshot, error) {
-	const q = `SELECT ` + statsColumns + ` FROM video_stats WHERE video_id = $1 ORDER BY fetched_at DESC LIMIT 1`
-	snap, err := scanStats(r.pool.QueryRow(ctx, q, videoID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return StatSnapshot{}, errSnapshotNotFound("Video stats not found.")
-	}
-	if err != nil {
-		return StatSnapshot{}, fmt.Errorf("insight: loading latest stats: %w", err)
-	}
-	return snap, nil
-}
-
 // ListStats returns the newest points for one video inside the window, oldest
 // first. It reads one row past limit so the caller can tell a full series from
 // a truncated one without a second count query; the newest points win, because

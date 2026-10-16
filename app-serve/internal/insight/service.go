@@ -24,16 +24,12 @@ import (
 // maxQueryIDs caps one video query, per 002 section 7.
 const maxQueryIDs = 20
 
-// defaultStatsTTL is how long a stored snapshot is served before a refetch.
-const defaultStatsTTL = 5 * time.Minute
-
 // Config carries the service dependencies and the cache window.
 type Config struct {
 	Videos     VideoClient
 	Accounts   AccountResolver
 	Store      SnapshotStore
 	Now        func() time.Time
-	StatsTTL   time.Duration
 	CreatorTTL time.Duration
 }
 
@@ -46,9 +42,6 @@ type Service struct {
 func NewService(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
-	}
-	if cfg.StatsTTL <= 0 {
-		cfg.StatsTTL = defaultStatsTTL
 	}
 	return &Service{cfg: cfg}
 }

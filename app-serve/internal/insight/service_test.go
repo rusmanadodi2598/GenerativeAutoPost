@@ -73,44 +73,6 @@ func TestQueryVideosGivenMoreThan20IDs_ThenRejected(t *testing.T) {
 	}
 }
 
-func TestVideoStatsGivenNoSnapshot_ThenFetchedAndStored(t *testing.T) {
-	h := newServiceHarness(t)
-	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(int64(30)), LikeCount: count(int64(4))}}
-	snap, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo)
-	if err != nil {
-		t.Fatalf("VideoStats returned %v", err)
-	}
-	if snap.ViewCount == nil || *snap.ViewCount != 30 {
-		t.Fatalf("view count = %v", snap.ViewCount)
-	}
-	if snap.CommentCount != nil {
-		t.Fatalf("comment count = %v, want absent", *snap.CommentCount)
-	}
-	if snap.FetchedAt.IsZero() {
-		t.Fatal("fetched_at is zero")
-	}
-	if h.store.writes != 1 {
-		t.Fatalf("snapshot writes = %d", h.store.writes)
-	}
-}
-
-func TestVideoStatsGivenFreshSnapshot_ThenUpstreamIsNotCalled(t *testing.T) {
-	h := newServiceHarness(t)
-	h.svc.cfg.Now = func() time.Time { return time.Date(2026, 10, 12, 9, 0, 30, 0, time.UTC) }
-	h.store.stats = []StatSnapshot{{
-		VideoID:   testVideo,
-		ViewCount: count(int64(99)),
-		FetchedAt: time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC),
-	}}
-	snap, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo)
-	if err != nil {
-		t.Fatalf("VideoStats returned %v", err)
-	}
-	if *snap.ViewCount != 99 || h.store.writes != 0 {
-		t.Fatalf("snapshot = %+v writes = %d", snap, h.store.writes)
-	}
-}
-
 func TestRefreshStatsGivenStaleSnapshot_ThenAppendsANewPoint(t *testing.T) {
 	h := newServiceHarness(t)
 	h.store.stats = []StatSnapshot{{
@@ -125,37 +87,6 @@ func TestRefreshStatsGivenStaleSnapshot_ThenAppendsANewPoint(t *testing.T) {
 	}
 	if *snap.ViewCount != 50 || len(h.store.stats) != 2 {
 		t.Fatalf("snapshot = %+v rows = %d", snap, len(h.store.stats))
-	}
-}
-
-func TestVideoStatsGivenStaleSnapshotAndFailedRefetch_ThenStalePointIsServed(t *testing.T) {
-	h := newServiceHarness(t)
-	h.store.stats = []StatSnapshot{{
-		VideoID:   testVideo,
-		ViewCount: count(int64(10)),
-		FetchedAt: time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC),
-	}}
-	h.tiktok.err = apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is unavailable.")
-	snap, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo)
-	if err != nil {
-		t.Fatalf("VideoStats returned %v", err)
-	}
-	if *snap.ViewCount != 10 {
-		t.Fatalf("snapshot = %+v, want the stale point", snap)
-	}
-	if h.store.writes != 0 {
-		t.Fatalf("snapshot writes = %d", h.store.writes)
-	}
-}
-
-func TestVideoStatsGivenUpstreamErrorAndNoStoredPoint_ThenErrorPropagates(t *testing.T) {
-	h := newServiceHarness(t)
-	h.tiktok.err = apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is unavailable.")
-	if _, err := h.svc.VideoStats(context.Background(), testOperator, testAccount, testVideo); err == nil {
-		t.Fatal("expected an error")
-	}
-	if h.store.writes != 0 {
-		t.Fatalf("snapshot writes = %d", h.store.writes)
 	}
 }
 
@@ -214,7 +145,6 @@ func TestProfileGivenForeignAccount_ThenOwnershipIsCheckedFirst(t *testing.T) {
 		Accounts: &fakeAccounts{err: apierror.New(apierror.CodeForbidden, 0, "Account is not yours.")},
 		Store:    h.store,
 		Now:      func() time.Time { return time.Now().UTC() },
-		StatsTTL: time.Minute,
 	})
 	_, err := svc.Profile(context.Background(), testOperator, testAccount)
 	var apiErr *apierror.Error

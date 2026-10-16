@@ -57,22 +57,57 @@ func TestStatsSeriesGivenForeignWindow_ThenValidationFails(t *testing.T) {
 	}
 }
 
-func TestStatsSeriesGivenStaleLatestPoint_ThenExactlyOneRefetch(t *testing.T) {
+func TestStatsSeriesGivenStoredPoints_ThenNoRefetch(t *testing.T) {
 	h := newServiceHarness(t)
 	h.store.stats = []StatSnapshot{{
 		VideoID: testVideo, ViewCount: count(int64(5)),
 		FetchedAt: time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC),
 	}}
-	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(int64(9))}}
 	series, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d)
 	if err != nil {
 		t.Fatalf("StatsSeries: %v", err)
 	}
-	if len(series.Points) != 2 {
+	if len(series.Points) != 1 || *series.Points[0].ViewCount != 5 {
 		t.Fatalf("points = %+v", series.Points)
 	}
+	if h.store.writes != 0 {
+		t.Fatalf("writes = %d, want no refetch", h.store.writes)
+	}
+	if len(h.tiktok.queryIDs) != 0 {
+		t.Fatalf("upstream called with %v, want none", h.tiktok.queryIDs)
+	}
+}
+
+func TestStatsSeriesGivenNoPoints_ThenOneFetchAndTheNextReadDoesNotRefetch(t *testing.T) {
+	h := newServiceHarness(t)
+	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(int64(9))}}
+	first, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d)
+	if err != nil {
+		t.Fatalf("first StatsSeries: %v", err)
+	}
+	if len(first.Points) != 1 || *first.Points[0].ViewCount != 9 || h.store.writes != 1 {
+		t.Fatalf("first = %+v writes = %d", first.Points, h.store.writes)
+	}
+	second, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d)
+	if err != nil {
+		t.Fatalf("second StatsSeries: %v", err)
+	}
 	if h.store.writes != 1 {
-		t.Fatalf("writes = %d, want exactly one refetch", h.store.writes)
+		t.Fatalf("writes = %d after the second read, want 1", h.store.writes)
+	}
+	if len(second.Points) != 1 {
+		t.Fatalf("second = %+v", second.Points)
+	}
+}
+
+func TestStatsSeriesGivenNoPointsAndUpstreamError_ThenErrorPropagates(t *testing.T) {
+	h := newServiceHarness(t)
+	h.tiktok.err = apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is unavailable.")
+	if _, err := h.svc.StatsSeries(context.Background(), testOperator, testAccount, testVideo, StatRange7d); err == nil {
+		t.Fatal("expected an error")
+	}
+	if h.store.writes != 0 {
+		t.Fatalf("writes = %d", h.store.writes)
 	}
 }
 

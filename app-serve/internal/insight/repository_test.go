@@ -74,76 +74,35 @@ func wantInsightCode(t *testing.T, err error, code apierror.Code) {
 	}
 }
 
-func TestStatsNilStaysNil(t *testing.T) {
+func TestStatsListReturnsTheWindowAscendingWithNilAndZeroKept(t *testing.T) {
 	ctx := context.Background()
 	repo := NewRepository(testPool(t))
 	videoID := "video-" + uuid.NewString()
-	views := int64(120)
-	row, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: &views})
+	now := time.Now().UTC()
+	zero := int64(0)
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, LikeCount: &zero, FetchedAt: now.Add(-2 * time.Hour)}); err != nil {
+		t.Fatalf("insert zero: %v", err)
+	}
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, FetchedAt: now}); err != nil {
+		t.Fatalf("insert nil: %v", err)
+	}
+	points, truncated, err := repo.ListStats(ctx, videoID, now.Add(-time.Hour), 10)
 	if err != nil {
-		t.Fatalf("insert: %v", err)
+		t.Fatalf("list: %v", err)
 	}
-	got, err := repo.LatestStats(ctx, videoID)
+	if truncated || len(points) != 1 {
+		t.Fatalf("points = %d truncated = %v", len(points), truncated)
+	}
+	if points[0].LikeCount != nil {
+		t.Fatalf("like count = %v, want absent", points[0].LikeCount)
+	}
+	all, _, err := repo.ListStats(ctx, videoID, now.Add(-3*time.Hour), 10)
 	if err != nil {
-		t.Fatalf("latest: %v", err)
+		t.Fatalf("list all: %v", err)
 	}
-	if got.ID != row.ID || got.VideoID != videoID {
-		t.Fatalf("got %+v, want id %s video %s", got, row.ID, videoID)
+	if len(all) != 2 || all[0].LikeCount == nil || *all[0].LikeCount != 0 {
+		t.Fatalf("all = %+v, want the zero point first and non-nil", all)
 	}
-	if got.ViewCount == nil || *got.ViewCount != 120 {
-		t.Fatalf("view count = %+v, want 120", got.ViewCount)
-	}
-	if got.LikeCount != nil || got.CommentCount != nil || got.ShareCount != nil {
-		t.Fatalf("expected nil counts, got %+v", got)
-	}
-}
-
-func TestStatsNewerFetchedAtWins(t *testing.T) {
-	ctx := context.Background()
-	repo := NewRepository(testPool(t))
-	videoID := "video-" + uuid.NewString()
-	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: intPtr(10),
-		FetchedAt: time.Now().UTC().Add(-time.Hour)}); err != nil {
-		t.Fatalf("insert older: %v", err)
-	}
-	newer, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, ViewCount: intPtr(42),
-		FetchedAt: time.Now().UTC()})
-	if err != nil {
-		t.Fatalf("insert newer: %v", err)
-	}
-	got, err := repo.LatestStats(ctx, videoID)
-	if err != nil {
-		t.Fatalf("latest: %v", err)
-	}
-	if got.ID != newer.ID || *got.ViewCount != 42 {
-		t.Fatalf("got %+v, want id %s views 42", got, newer.ID)
-	}
-}
-
-func TestStatsZeroReadsBackNonNil(t *testing.T) {
-	ctx := context.Background()
-	repo := NewRepository(testPool(t))
-	videoID := "video-" + uuid.NewString()
-	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: videoID, LikeCount: intPtr(0)}); err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-	got, err := repo.LatestStats(ctx, videoID)
-	if err != nil {
-		t.Fatalf("latest: %v", err)
-	}
-	if got.LikeCount == nil {
-		t.Fatal("like count is nil, want non-nil 0")
-	}
-	if *got.LikeCount != 0 {
-		t.Fatalf("like count = %d, want 0", *got.LikeCount)
-	}
-}
-
-func TestStatsLatestUnknownVideoIsNotFound(t *testing.T) {
-	ctx := context.Background()
-	repo := NewRepository(testPool(t))
-	_, err := repo.LatestStats(ctx, "video-"+uuid.NewString())
-	wantInsightCode(t, err, apierror.CodeNotFound)
 }
 
 func TestCreatorSnapshotRoundTripThenNewerWins(t *testing.T) {
