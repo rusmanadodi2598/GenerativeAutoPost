@@ -22,7 +22,7 @@ the deployment files. No admin UI ships in this version.
 
 ## Data
 
-Ten tables, migrated up and down through `migrations/`. Stats and creator
+Nine tables, migrated up and down through `migrations/`. Stats and creator
 snapshots are append-only: every write is an insert, so the history is never
 rewritten.
 
