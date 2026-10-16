@@ -31,32 +31,60 @@ func count(value int64) *int64 { return &value }
 
 // fakeTikTok serves canned upstream reads and records the arguments it got.
 type fakeTikTok struct {
-	page         tiktokclient.VideoPage
-	videos       []tiktokclient.Video
-	info         tiktokclient.UserInfo
-	creator      tiktokclient.CreatorInfo
-	err          error
-	listArgs     []string
-	queryIDs     []string
-	queryUser    []string
-	creatorCalls int
+	page          tiktokclient.VideoPage
+	pages         []tiktokclient.VideoPage
+	listCalls     int
+	videos        []tiktokclient.Video
+	info          tiktokclient.UserInfo
+	creator       tiktokclient.CreatorInfo
+	err           error
+	listArgs      []string
+	queryIDs      []string
+	queryBatches  [][]string
+	filterQueries bool
+	queryUser     []string
+	creatorCalls  int
 }
 
-// ListVideos records the cursor and returns the canned page.
+// ListVideos records the cursor and returns the canned page, or the next
+// scripted page when a sequence is set.
 func (f *fakeTikTok) ListVideos(_ context.Context, access, cursor string, _ int) (tiktokclient.VideoPage, error) {
 	f.listArgs = append(f.listArgs, access, cursor)
 	if f.err != nil {
 		return tiktokclient.VideoPage{}, f.err
 	}
+	if len(f.pages) > 0 {
+		if f.listCalls >= len(f.pages) {
+			return tiktokclient.VideoPage{}, nil
+		}
+		page := f.pages[f.listCalls]
+		f.listCalls++
+		return page, nil
+	}
 	return f.page, nil
 }
 
-// QueryVideos records the ids and returns the canned videos.
+// QueryVideos records the ids and returns the canned videos, narrowed to the
+// requested ids when filterQueries is set.
 func (f *fakeTikTok) QueryVideos(_ context.Context, _ string, ids, fields []string) ([]tiktokclient.Video, error) {
 	f.queryIDs = append(f.queryIDs, ids...)
+	f.queryBatches = append(f.queryBatches, append([]string(nil), ids...))
 	f.queryUser = fields
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.filterQueries {
+		want := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			want[id] = true
+		}
+		var out []tiktokclient.Video
+		for _, video := range f.videos {
+			if want[video.ID] {
+				out = append(out, video)
+			}
+		}
+		return out, nil
 	}
 	return f.videos, nil
 }
@@ -100,6 +128,8 @@ type fakeStore struct {
 	statsErr    error
 	creatorsErr error
 	writes      int
+	prunes      int
+	pruneCutoff time.Time
 }
 
 // InsertStats appends the snapshot.
@@ -149,6 +179,8 @@ func (f *fakeStore) LatestCreatorSnapshot(context.Context, string) (CreatorSnaps
 
 // DeleteStatsBefore drops every stored point older than the cutoff.
 func (f *fakeStore) DeleteStatsBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	f.prunes++
+	f.pruneCutoff = cutoff
 	kept := f.stats[:0]
 	var removed int64
 	for _, snap := range f.stats {
