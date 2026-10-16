@@ -8,7 +8,8 @@ acceptable answer and a missing answer is not.
 
 - **Service in this map:** `app-serve` (Go, the only service with code today).
 - **Last reviewed:** 2026-10-16, `docs/DECISIONS/002` (upload idempotency,
-  stats series, R2 object client).
+  stats series, R2 object client) and `docs/DECISIONS/003` (stats retention
+  and refresh worker).
 - **Specs this map summarises:** `docs/SPEC/001-BACKEND-ARCHITECTURE.md`,
   `002-TIKTOK-INTEGRATION.md`, `003-API-CONTRACT.md`.
 
@@ -65,7 +66,7 @@ handler -> router`. A package may only import the layer to its left.
 | `internal/account` | service | Account aggregate, token vault, ownership checks |
 | `internal/publish` | service | Init for video, photo, draft, chunk proxy, status reconcile |
 | `internal/webhook` | worker | Signature verify, idempotent intake, dispatcher, worker pool, sweep |
-| `internal/insight` | service | Video list and query, stats series, creator profile |
+| `internal/insight` | service | Video list and query, stats series, creator profile, background stats sweep and retention |
 | `internal/media` | service | Upload validation, disk and S3 stores, chunk planner |
 | `internal/compose` | router | Composition root: constructs services, mounts route tables |
 | `cmd/app-serve` | config | Process entrypoint, signal handling, worker supervision |
@@ -102,7 +103,7 @@ All console routes are session guarded. State-changing routes also require
 | GET | `/videos` | insight | One page, `account_id` required, `max_count` max 20 |
 | POST | `/videos/query` | insight | Up to 20 ids |
 | GET | `/videos/{video_id}` | insight | Refreshes a stale cover URL |
-| GET | `/videos/{video_id}/stats` | insight | Series, `range` 7d, 30d, 90d, default 30d |
+| GET | `/videos/{video_id}/stats` | insight | Series, `range` 7d, default 7d |
 | POST | `/videos/{video_id}/stats/refresh` | insight | Always appends a point |
 | POST | `/media/uploads` | media | `Idempotency-Key` plus `Checksum-SHA256` |
 | GET | `/media/{id}` | media | 302 to a signed URL when the store signs |
@@ -130,7 +131,7 @@ pairs live in `migrations/`.
 | `publish_chunks` | 000002 | Transfer bookkeeping for `FILE_UPLOAD` |
 | `webhook_events` | 000002 | Unique `dedupe_key`, the webhook idempotency guard |
 | `outbox` | 000002 | Transactional outbox, `published_at IS NULL` means pending |
-| `video_stats` | 000003, 000005 | Append-only series, nullable counts |
+| `video_stats` | 000003, 000005 | Append-only 7 day series, nullable counts; pruned by the stats sweep |
 | `creator_info_snapshots` | 000003, 000007 | Short TTL cache for the publish form |
 
 Invariants worth not breaking:
@@ -202,6 +203,13 @@ TikTok ──POST /webhooks/tiktok──► throttle ──► HMAC verify ─�
 | Worker pool | `Worker.Run`, in-process bounded queue | ctx cancel plus in-flight drain | bounded attempts, exponential backoff with jitter |
 | Reconcile sweep | `Reconciler.Run`, bounded ticker | ctx cancel | bounded, then `RECONCILE_EXHAUSTED` under status `FAILED` |
 | Outbox relay | `Reconciler.RunOutbox`, bounded ticker | ctx cancel | row stays pending when the sink fails |
+| Stats sweep | `StatsWorker.Run`, bounded ticker | ctx cancel | per account and per video logged and skipped; the next tick retries |
+
+The stats sweep is a second background path. It runs on
+`STATS_REFRESH_INTERVAL` (default 3 hours), refreshes each account token
+through `auth.Service.Refresh`, pages the newest catalog through the shared
+limiter, appends one `video_stats` row per live video, and deletes rows older
+than `STATS_RETENTION` (default 168 hours).
 
 Intake answers `200` once the signature is valid, including duplicates and
 unknown event types, because a non-`200` triggers up to 72 hours of TikTok
@@ -236,10 +244,11 @@ leaves no object. A failed upload releases its claim so a corrected retry is
 accepted, not answered `409`. A request with a key but no digest is `422`.
 
 **Stats series.** `GET /videos/{id}/stats` serves
-`{video_id, range, points, truncated}`. Only the newest point is freshness
-checked, so a read appends at most one point and never refetches history.
-Points are capped at 500, read newest first, so a truncated window loses its
-oldest points.
+`{video_id, range, points, truncated}` from stored rows. The stats sweep is
+the steady writer, so a read fetches only on a first sighting: a video with no
+point inside the window gets one fetch and append, and history is never
+refetched. Points are capped at 500, read newest first, so a truncated window
+loses its oldest points.
 
 ## 9. Known gaps
 
@@ -254,6 +263,5 @@ assume it exists.
    machine does not depend on a consumer.
 3. **No `sessions` mirror.** The table exists for audit; the code writes
    sessions to Redis only.
-4. **No `video_stats` retention.** The series grows without pruning.
-5. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
+4. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
    (antislop R-37).

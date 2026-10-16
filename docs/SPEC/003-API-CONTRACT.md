@@ -246,13 +246,13 @@ The upstream `upload_url` is not exposed to app-ui. Chunks are proxied through `
 | `GET` | `/videos` | `account_id` (required), `cursor`, `limit` (max 20) | `200` list |
 | `POST` | `/videos/query` | `{"account_id": "...", "video_ids": ["..."]}` (max 20) | `200` list |
 | `GET` | `/videos/{video_id}` | `account_id` | `200` video |
-| `GET` | `/videos/{video_id}/stats` | `account_id`, `range` (`7d`, `30d`, `90d`, default `30d`) | `200` series `{ video_id, range, points, truncated }`, max 500 points, ascending by `fetched_at` |
+| `GET` | `/videos/{video_id}/stats` | `account_id`, `range` (`7d`, default `7d`) | `200` series `{ video_id, range, points, truncated }`, max 500 points, ascending by `fetched_at` |
 | `POST` | `/videos/{video_id}/stats/refresh` | `account_id` | `202` | Fetches a new snapshot |
 | `GET` | `/accounts/{id}/profile` | none | `200` profile and counts |
 
 Video object shown to app-ui: `id`, `create_time`, `title`, `video_description`, `duration`, `width`, `height`, `cover_image_url`, `share_url`, `embed_link`, `is_aigc`, and counts `view_count`, `like_count`, `comment_count`, `share_count`.
 
-The stats series is bounded on both ends. `range` is a closed enum, so an unknown value is a `422` with `VALIDATION_FAILED` rather than a silent default, and the series returns at most 500 points. Only the newest point is freshness-checked: a stale latest point triggers one fetch and append before the series is read, and an upstream failure serves the stored series as-is. History is appended, never refetched, so reading a chart never grows it. `POST /videos/{video_id}/stats/refresh` is the explicit way to add a point on demand.
+The stats series is bounded on both ends. `range` is a closed enum of `7d`, so an unknown value is a `422` with `VALIDATION_FAILED` rather than a silent default, and the series returns at most 500 points. The read path is read-only: a background worker appends one point per live video on its tick and prunes rows older than the 7 day retention, so opening a chart does not fetch. The one exception is a first sighting: a video with no point inside the window gets one fetch and append. History is appended, never refetched. `POST /videos/{video_id}/stats/refresh` is the explicit way to add a point on demand.
 
 Counts carry the snapshot time. When TikTok returns no value for a field, the field is omitted, never sent as `0`. app-ui renders "not available" instead of a zero, which is the rule that keeps a missing statistic from reading as a real one.
 
@@ -300,5 +300,5 @@ Each route gets a table-driven test for the happy path, a validation failure, an
 
 1. Upload size caps per content type, to be set once TikTok's current limits are re-verified.
 2. Whether the operator login is local credentials or SSO. The specs assume local credentials with `password_hash` until told otherwise.
-3. ~~The `range` options for `/videos/{id}/stats`.~~ Closed by `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md`: `7d`, `30d`, `90d`, default `30d`.
-4. Retention and downsampling for `video_stats` rows.
+3. ~~The `range` options for `/videos/{id}/stats`.~~ Closed by `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md`, then amended by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`: `7d`, default `7d`.
+4. Downsampling for `video_stats` rows. Retention is closed by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`; a window longer than 7 days still needs a storage decision.

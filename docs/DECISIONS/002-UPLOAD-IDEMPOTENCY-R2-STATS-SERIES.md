@@ -71,25 +71,29 @@ the adapter no longer buffers an object to hash it. The upload service still
 buffers the stream to verify the client checksum before any write, so the seam
 removes the adapter's second copy, not the service's verification buffer.
 
-## Decision 3: stats series with a `range` enum and refresh-on-read
+## Decision 3: stats series with a `range` enum and a background writer
 
-**Adopted.** `GET /videos/{id}/stats` takes `range` as `7d | 30d | 90d`
-(default `30d`); any other value is `422 VALIDATION_FAILED`. The response is
+**Adopted, then amended by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`.**
+`GET /videos/{id}/stats` takes `range` as `7d` (default `7d`); any other value
+is `422 VALIDATION_FAILED`. The response is
 `data: { video_id, range, points: [...], truncated }` with points ascending by
 `fetched_at`, capped at 500 points per response.
 
-- Freshness applies to the latest point only, reusing the existing TTL rule:
-  a stale latest point triggers one fetch-and-append before the series is
-  read; an upstream failure falls back to the stored series. History is never
-  refetched, only appended to.
+The series read is read-only. A background worker sweeps every connected
+account, appends one point per live video, and prunes rows older than 7 days,
+so freshness no longer waits on a reader. The one read-time exception is a
+first sighting: a video with no point inside the 7 day window gets one fetch
+and append, and a failed fetch propagates the upstream error. History is
+never refetched.
+
 - `POST /videos/{id}/stats/refresh` is unchanged: it always fetches and
   appends, so the series keeps one point per manual request.
-- This needs one new repository method, `ListStats(videoID, since, limit)`.
+- This needed one new repository method, `ListStats(videoID, since, limit)`.
   The required index (`video_stats(video_id, fetched_at DESC)`) already
   exists per 001 section 5.
 
-Contract 003 section 7.5 is updated with the enum, the default, the cap, and
-the refresh-on-read rule. Open item 3 in section 12 is closed by this ADR.
+Contract 003 section 7.5 carries the enum, the default, and the cap. Open
+item 3 in section 12 is closed by this ADR; open item 1 moves to ADR 003.
 
 ## Consequences
 
@@ -109,12 +113,15 @@ the refresh-on-read rule. Open item 3 in section 12 is closed by this ADR.
   digest over the multipart envelope instead of the file bytes is rejected
   rather than silently stored.
 - Series responses grow with retention; a retention or downsampling policy
-  for `video_stats` becomes the next open question once real fetch volume
-  is known.
+  for `video_stats` was the open question once real fetch volume was known.
+  Retention is settled by `docs/DECISIONS/003` at 7 days; downsampling is
+  still open.
 - `POST /videos/{id}/stats` no longer returns a single snapshot object. That
   is safe today because app-ui has no code, and it becomes a breaking change
   the moment a client ships.
 
 ## Open Questions
 
-1. Retention and downsampling policy for `video_stats` rows.
+1. Downsampling policy for `video_stats` rows. Retention (7 days) and the
+   refresh worker are recorded in
+   `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`.

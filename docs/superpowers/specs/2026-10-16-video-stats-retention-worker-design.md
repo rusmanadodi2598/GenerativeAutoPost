@@ -55,9 +55,9 @@ not need an upstream call to be current.
    so there is no cursor pagination.
 6. **A read is read-only, with one first-sighting exception.** `StatsSeries`
    no longer refreshes the newest point on every open. When a video has no
-   stored point at all (a video published after the last tick and opened
-   before the next), the service performs one fetch and append. That is a
-   first fetch, not a refetch, so it does not conflict with "append, never
+   point inside the scope window (a video published after the last tick and
+   opened before the next), the service performs one fetch and append. That is
+   a first fetch, not a refetch, so it does not conflict with "append, never
    refetch," and it closes the cold-start gap the worker alone would leave.
    `StatsTTL` and the stale-latest refetch leave with it, so the only
    read-time upstream call is that first fetch. `docs/DECISIONS/002`,
