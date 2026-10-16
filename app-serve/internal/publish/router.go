@@ -48,6 +48,7 @@ type responseMeta struct {
 type attemptView struct {
 	ID            string    `json:"id"`
 	AccountID     string    `json:"account_id"`
+	MediaID       string    `json:"media_id,omitempty"`
 	PublishID     string    `json:"publish_id"`
 	PostMode      string    `json:"post_mode"`
 	MediaType     string    `json:"media_type"`
@@ -67,6 +68,7 @@ type attemptView struct {
 func viewAttempt(rec Record) attemptView {
 	var view attemptView
 	view.ID, view.AccountID, view.PublishID = rec.ID, rec.AccountID, rec.PublishID
+	view.MediaID = rec.MediaID
 	view.PostMode, view.MediaType, view.Source = rec.PostMode, rec.MediaType, rec.Source
 	view.Status, view.PrivacyLevel, view.Title = rec.Status, rec.PrivacyLevel, rec.Title
 	view.Description, view.FailReason, view.PostID = rec.Description, rec.FailReason, rec.PostID

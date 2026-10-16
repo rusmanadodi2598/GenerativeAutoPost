@@ -27,7 +27,8 @@ import (
 // attemptColumns is the shared projection for every attempt read and write.
 const attemptColumns = `id, account_id, publish_id, post_mode, media_type, source, status, ` +
 	`COALESCE(privacy_level, ''), COALESCE(title, ''), COALESCE(description, ''), ` +
-	`COALESCE(fail_reason, ''), COALESCE(post_id, ''), uploaded_bytes, created_at`
+	`COALESCE(fail_reason, ''), COALESCE(post_id, ''), uploaded_bytes, created_at, ` +
+	`COALESCE(media_id::text, '')`
 
 // listQuery pages one account's attempts newest first. The status and cursor
 // placeholders go inert on empty input, so one statement covers both listings.
@@ -38,9 +39,9 @@ const listQuery = `SELECT ` + attemptColumns + ` FROM publish_attempts
 // insertAttempt writes the full attempt row. The unique index on publish_id is
 // the concurrency guard for duplicate inits.
 const insertAttempt = `INSERT INTO publish_attempts (id, account_id, publish_id, post_mode,
-	media_type, source, status, privacy_level, title, description, fail_reason, post_id, uploaded_bytes)
+	media_type, source, status, privacy_level, title, description, fail_reason, post_id, uploaded_bytes, media_id)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''),
-		NULLIF($11, ''), NULLIF($12, ''), $13) RETURNING ` + attemptColumns
+		NULLIF($11, ''), NULLIF($12, ''), $13, NULLIF($14, '')::uuid) RETURNING ` + attemptColumns
 
 // Page bounds: 20 by default, 100 at most.
 const (
@@ -87,7 +88,7 @@ func scanAttempt(row pgx.Row) (Record, error) {
 	)
 	if err := row.Scan(&id, &acct, &rec.PublishID, &rec.PostMode, &rec.MediaType, &rec.Source,
 		&statusRaw, &rec.PrivacyLevel, &rec.Title, &rec.Description, &rec.FailReason,
-		&rec.PostID, &rec.UploadedBytes, &rec.CreatedAt); err != nil {
+		&rec.PostID, &rec.UploadedBytes, &rec.CreatedAt, &rec.MediaID); err != nil {
 		return Record{}, err
 	}
 	rec.ID = id.String()
@@ -121,7 +122,7 @@ func (r *Repository) Insert(ctx context.Context, rec Record) (Record, error) {
 	}
 	stored, err := scanAttempt(r.pool.QueryRow(ctx, insertAttempt, id, account, rec.PublishID,
 		rec.PostMode, rec.MediaType, rec.Source, rec.Status.String(), rec.PrivacyLevel,
-		rec.Title, rec.Description, rec.FailReason, rec.PostID, rec.UploadedBytes))
+		rec.Title, rec.Description, rec.FailReason, rec.PostID, rec.UploadedBytes, rec.MediaID))
 	if err != nil {
 		return Record{}, mapWriteErr(err)
 	}

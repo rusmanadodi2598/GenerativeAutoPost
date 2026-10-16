@@ -74,8 +74,9 @@ func (s *Service) InitPhoto(ctx context.Context, operatorID string, req InitPhot
 		return empty, fmt.Errorf("publish: generating attempt id: %w", err)
 	}
 	stored, err := s.attempts.Insert(ctx, Record{
-		ID: id.String(), AccountID: req.AccountID, PublishID: upstream.PublishID,
-		PostMode: req.PostMode, MediaType: "PHOTO", Source: sourceFileUpload,
+		ID: id.String(), AccountID: req.AccountID, MediaID: req.MediaID,
+		PublishID: upstream.PublishID,
+		PostMode:  req.PostMode, MediaType: "PHOTO", Source: sourceFileUpload,
 		Status: StatusCreated, PrivacyLevel: req.PostInfo.PrivacyLevel,
 		Title: req.PostInfo.Title, Description: req.PostInfo.Description,
 	})
@@ -120,8 +121,9 @@ func (s *Service) InitDraft(ctx context.Context, operatorID string, req InitDraf
 	}
 	draft := NewDraft(id.String(), req.AccountID, upstream.PublishID)
 	stored, err := s.attempts.Insert(ctx, Record{
-		ID: draft.ID(), AccountID: req.AccountID, PublishID: upstream.PublishID,
-		PostMode: "DRAFT", MediaType: "VIDEO", Source: req.Source, Status: draft.Status(),
+		ID: draft.ID(), AccountID: req.AccountID, MediaID: req.MediaID,
+		PublishID: upstream.PublishID,
+		PostMode:  "DRAFT", MediaType: "VIDEO", Source: req.Source, Status: draft.Status(),
 	})
 	if err != nil {
 		return empty, err
@@ -176,8 +178,9 @@ func (s *Service) InitVideo(ctx context.Context, operatorID string, req InitVide
 		return empty, fmt.Errorf("publish: generating attempt id: %w", err)
 	}
 	stored, err := s.attempts.Insert(ctx, Record{
-		ID: id.String(), AccountID: req.AccountID, PublishID: upstream.PublishID,
-		PostMode: modeDirectPost, MediaType: "VIDEO", Source: req.Source,
+		ID: id.String(), AccountID: req.AccountID, MediaID: req.MediaID,
+		PublishID: upstream.PublishID,
+		PostMode:  modeDirectPost, MediaType: "VIDEO", Source: req.Source,
 		Status: StatusCreated, PrivacyLevel: req.PostInfo.PrivacyLevel, Title: req.PostInfo.Title,
 	})
 	if err != nil {

@@ -24,7 +24,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/postgres"
 )
+
+// migrationsDir holds the same files the migration tests apply. From
+// internal/publish it sits three levels up, not four as it does under platform/postgres.
+const migrationsDir = "../../../migrations"
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -37,6 +42,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("opening pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	// The schema is applied here so this package does not depend on another
+	// package's tests having migrated the database first.
+	if err := postgres.Up(context.Background(), pool, migrationsDir); err != nil {
+		t.Fatalf("applying migrations: %v", err)
+	}
 	return pool
 }
 

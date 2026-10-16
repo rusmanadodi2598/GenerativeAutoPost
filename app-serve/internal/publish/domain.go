@@ -62,6 +62,7 @@ type Attempt struct {
 type Record struct {
 	ID            string
 	AccountID     string
+	MediaID       string
 	PublishID     string
 	PostMode      string
 	MediaType     string
