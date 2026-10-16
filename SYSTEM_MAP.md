@@ -138,7 +138,8 @@ Invariants worth not breaking:
 
 - A count TikTok omits is stored as SQL NULL and omitted on the wire. A zero
   is a real zero, never a stand-in for "not available".
-- Snapshot tables are append-only. Reads take the newest row; writes insert.
+- Snapshot tables are append-only, except the `video_stats` retention prune.
+  Reads take the newest row, or the window for `video_stats`; writes insert.
 - `is_aigc` is set by the server for generated content, not by the client.
 - Deleting an account clears the ciphertext and stamps `revoked_at`; it never
   deletes the row, so the audit trail survives.

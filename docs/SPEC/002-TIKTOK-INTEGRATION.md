@@ -267,7 +267,7 @@ Backoff is exponential with jitter, capped. Status fetch respects the 30 request
 
 Video fields available: `id`, `create_time`, `cover_image_url`, `share_url`, `video_description`, `duration`, `height`, `width`, `title`, `embed_html`, `embed_link`, `like_count`, `comment_count`, `share_count`, `view_count`, `is_aigc`.
 
-Statistics are stored as snapshots in `video_stats` for trends. The UI shows the latest snapshot plus its `fetched_at`, never a live number presented as current. Cover URLs expire, so the app re-queries before display when the URL is older than its TTL.
+Statistics are stored as a `video_stats` series for trends. The UI shows the stored series with each point's `fetched_at`, never a live number presented as current. Cover URLs expire, so the app re-queries before display when the URL is older than its TTL.
 
 Stats are shown only when the TikTok response contains them. Empty means empty, not zero (`AGENTS.md` and antislop R-17).
 

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-16
 - **Owner:** Dodi Rusmana
 - **Deciders:** Dodi Rusmana
-- **Supersedes:** `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md` decision 3
+- **Amends:** `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md` decision 3's range enum and refresh-on-read rule
 
 ## Context
 
@@ -79,8 +79,9 @@ re-login prompt for the operator, not a silent skip. Confirmed by the operator
 `video/list` is paged until `has_more` is false, newest first, with no page
 cap. Every list call passes the existing Redis token bucket through the
 `FamilyListVideos` family, so a catalog larger than the per-minute budget stops
-for this tick and resumes on the next one instead of overrunning TikTok. Old
-videos past that point keep the points they already have. `video/query` is
+for this tick and starts again from the newest page on the next tick instead of
+overrunning TikTok. An old video keeps its points only until retention prunes
+them, after which a read refetches on first sighting. `video/query` is
 batched 20 ids per call, so bulk is bounded by the list budget that gates it.
 
 ## Decision 10: a failed first-sighting fetch propagates

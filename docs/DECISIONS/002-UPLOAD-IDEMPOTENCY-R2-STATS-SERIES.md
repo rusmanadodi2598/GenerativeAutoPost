@@ -122,6 +122,6 @@ item 3 in section 12 is closed by this ADR; open item 1 moves to ADR 003.
 
 ## Open Questions
 
-1. Downsampling policy for `video_stats` rows. Retention (7 days) and the
-   refresh worker are recorded in
-   `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`.
+1. None here. The downsampling policy for `video_stats` rows is owned by
+   `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`; it is not re-asked
+   in this ADR.

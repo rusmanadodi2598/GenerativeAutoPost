@@ -32,7 +32,10 @@ prunes rows older than the retention cutoff after each sweep.
 - Counts TikTok omits stay omitted on the wire. The console renders "not
   available" instead of zero.
 - Snapshot rows carry `fetched_at`, which is how the console judges freshness.
-- A background worker appends one `video_stats` point per live video on its interval, so freshness no longer waits on someone opening the chart. The stats read fetches only on a first sighting, when a video has no point inside the window.
+- A background worker appends one `video_stats` point per live video on its
+  interval, so freshness no longer waits on someone opening the chart. The
+  stats read fetches only on a first sighting, when a video has no point
+  inside the window.
 - The TikTok upload URL never reaches a client; chunks are proxied server-side.
 - Webhook intake is idempotent per event id, and a duplicate apply is a no-op.
 
