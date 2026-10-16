@@ -76,16 +76,16 @@ func TestStatsSeriesGivenStaleLatestPoint_ThenExactlyOneRefetch(t *testing.T) {
 	}
 }
 
-func TestRangeParsingAcceptsTheClosedSet(t *testing.T) {
-	for raw, want := range map[string]StatRange{
-		"": StatRange30d, "7d": StatRange7d, "30d": StatRange30d, "90d": StatRange90d,
-	} {
+func TestRangeParsingAcceptsOnlySevenDays(t *testing.T) {
+	for raw, want := range map[string]StatRange{"": StatRange7d, "7d": StatRange7d} {
 		got, err := parseRange(raw)
 		if err != nil || got != want {
 			t.Errorf("parseRange(%q) = %q, %v; want %q", raw, got, err, want)
 		}
 	}
-	if _, err := parseRange("1y"); err == nil {
-		t.Error("parseRange(1y) accepted, want rejection")
+	for _, raw := range []string{"30d", "90d", "1y"} {
+		if _, err := parseRange(raw); err == nil {
+			t.Errorf("parseRange(%q) accepted, want rejection", raw)
+		}
 	}
 }

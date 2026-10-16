@@ -26,7 +26,7 @@ func TestStatsRouteAnswersTheSeries(t *testing.T) {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 	data := decodeData(t, rec)
-	if data["video_id"] != testVideo || data["range"] != "30d" {
+	if data["video_id"] != testVideo || data["range"] != "7d" {
 		t.Fatalf("series head = %+v", data)
 	}
 	points, ok := data["points"].([]any)

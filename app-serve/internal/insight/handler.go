@@ -84,9 +84,8 @@ func (h *Handler) Show(c *gin.Context) {
 	h.writeSuccess(c, http.StatusOK, video)
 }
 
-// Stats answers the series for the requested window, defaulting to 30 days.
-// A fresh latest point is refreshed first, so the series always opens at the
-// newest known value.
+// Stats answers the series for the requested window, defaulting to 7 days.
+// The series comes from stored points rather than a fresh upstream read.
 func (h *Handler) Stats(c *gin.Context) {
 	operatorID, ok := operatorFrom(c)
 	if !ok {
@@ -94,7 +93,7 @@ func (h *Handler) Stats(c *gin.Context) {
 	}
 	window, err := parseRange(c.Query("range"))
 	if err != nil {
-		writeValidation(c, "Stats range must be one of 7d, 30d, 90d.")
+		writeValidation(c, "Stats range must be 7d.")
 		return
 	}
 	series, err := h.svc.StatsSeries(c.Request.Context(), operatorID, c.Query("account_id"), c.Param("video_id"), window)

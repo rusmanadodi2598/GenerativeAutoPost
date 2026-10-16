@@ -32,35 +32,32 @@ type StatSnapshot struct {
 // a freeform window would promise coverage the append-only history cannot keep.
 type StatRange string
 
-// Supported stats windows with their day widths.
+// Supported stats windows. Retention is 7 days, so 7d is the only window that
+// can hold a full series; a longer range is a contract change, not a value.
 const (
-	StatRange7d  StatRange = "7d"
-	StatRange30d StatRange = "30d"
-	StatRange90d StatRange = "90d"
+	StatRange7d StatRange = "7d"
 )
 
 // statRangeDays widths one range to the number of days the series covers.
 var statRangeDays = map[StatRange]int{
-	StatRange7d:  7,
-	StatRange30d: 30,
-	StatRange90d: 90,
+	StatRange7d: 7,
 }
 
 // maxSeriesPoints caps one series response so a long history never becomes an
 // unbounded read.
 const maxSeriesPoints = 500
 
-// parseRange maps the raw query value to a window, defaulting to 30 days.
+// parseRange maps the raw query value to a window, defaulting to 7 days.
 // An unknown value is rejected rather than silently defaulted, so a client
 // typo cannot hide behind data it did not ask for.
 func parseRange(raw string) (StatRange, error) {
 	if raw == "" {
-		return StatRange30d, nil
+		return StatRange7d, nil
 	}
 	window := StatRange(raw)
 	if _, ok := statRangeDays[window]; !ok {
 		return "", apierror.New(apierror.CodeValidationFailed, 0,
-			"Stats range must be one of 7d, 30d, 90d.")
+			"Stats range must be 7d.")
 	}
 	return window, nil
 }

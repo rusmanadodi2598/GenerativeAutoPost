@@ -84,7 +84,7 @@ func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoI
 	days, ok := statRangeDays[window]
 	if !ok {
 		return StatSeries{}, apierror.New(apierror.CodeValidationFailed, 0,
-			"Stats range must be one of 7d, 30d, 90d.")
+			"Stats range must be 7d.")
 	}
 	latest, err := s.VideoStats(ctx, operatorID, accountID, videoID)
 	if err != nil {
