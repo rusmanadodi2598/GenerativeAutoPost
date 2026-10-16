@@ -75,8 +75,14 @@ func (f *fakeStore) SignPublicURL(_ context.Context, id string) (string, error) 
 
 // testRouter wires the real route table over a fake store and a session stub.
 // maxBody configures the service upload cap, the single source for the
-// request body bound.
+// request body bound. A nil guard leaves the route without a replay guard.
 func testRouter(t *testing.T, store Store, account string, maxBody int64) *gin.Engine {
+	t.Helper()
+	return guardedRouter(t, store, nil, account, maxBody)
+}
+
+// guardedRouter wires the route table with an explicit replay guard.
+func guardedRouter(t *testing.T, store Store, guard UploadGuard, account string, maxBody int64) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -90,7 +96,7 @@ func testRouter(t *testing.T, store Store, account string, maxBody int64) *gin.E
 		svc.cfg.MaxBytes = maxBody
 	}
 	session := func(*gin.Context) (string, bool) { return account, account != "" }
-	RegisterRoutes(router, NewHandler(svc, store, session))
+	RegisterRoutes(router, NewHandler(svc, store, guard, session))
 	return router
 }
 

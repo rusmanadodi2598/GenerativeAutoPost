@@ -246,11 +246,13 @@ The upstream `upload_url` is not exposed to app-ui. Chunks are proxied through `
 | `GET` | `/videos` | `account_id` (required), `cursor`, `limit` (max 20) | `200` list |
 | `POST` | `/videos/query` | `{"account_id": "...", "video_ids": ["..."]}` (max 20) | `200` list |
 | `GET` | `/videos/{video_id}` | `account_id` | `200` video |
-| `GET` | `/videos/{video_id}/stats` | `account_id`, `range` | `200` snapshot series |
+| `GET` | `/videos/{video_id}/stats` | `account_id`, `range` (`7d`, `30d`, `90d`, default `30d`) | `200` series `{ video_id, range, points, truncated }`, max 500 points, ascending by `fetched_at` |
 | `POST` | `/videos/{video_id}/stats/refresh` | `account_id` | `202` | Fetches a new snapshot |
 | `GET` | `/accounts/{id}/profile` | none | `200` profile and counts |
 
 Video object shown to app-ui: `id`, `create_time`, `title`, `video_description`, `duration`, `width`, `height`, `cover_image_url`, `share_url`, `embed_link`, `is_aigc`, and counts `view_count`, `like_count`, `comment_count`, `share_count`.
+
+The stats series is bounded on both ends. `range` is a closed enum, so an unknown value is a `422` with `VALIDATION_FAILED` rather than a silent default, and the series returns at most 500 points. Only the newest point is freshness-checked: a stale latest point triggers one fetch and append before the series is read, and an upstream failure serves the stored series as-is. History is appended, never refetched, so reading a chart never grows it. `POST /videos/{video_id}/stats/refresh` is the explicit way to add a point on demand.
 
 Counts carry the snapshot time. When TikTok returns no value for a field, the field is omitted, never sent as `0`. app-ui renders "not available" instead of a zero, which is the rule that keeps a missing statistic from reading as a real one.
 
@@ -288,6 +290,8 @@ Local limits exist so we fail fast instead of burning the upstream quota. A loca
 
 `POST /publish/*` and `POST /media/uploads` accept `Idempotency-Key`. The key and a hash of the body are stored for 24 hours. A repeat with the same key and body returns the stored response. A repeat with the same key and a different body returns `409` with `IDEMPOTENCY_KEY_REUSED`.
 
+`POST /media/uploads` accepts `Checksum-SHA256`: the hex SHA-256 of the file bytes, not of the multipart framing, in 64 hex characters of either case, normalized to lowercase. A key sent without it is a `422` with `VALIDATION_FAILED`, and so is a malformed value; nothing is stored. The header exists because the body is streamed up to 200 MB, so a body hash is only known after the upload and cannot guard the write. With both headers, the claim is keyed on `Idempotency-Key` plus checksum before any byte is stored, and the server recomputes the digest from the streamed bytes before it stores anything, so a wrong header leaves no object. A repeat with the same key and checksum replays the stored response; a repeat with the same key and a different checksum is `409 IDEMPOTENCY_KEY_REUSED`; a repeat while the first attempt still runs is `409 CONFLICT`. A failed upload releases its claim, so a corrected retry under the same key is accepted.
+
 ## 11. Contract Testing
 
 Each route gets a table-driven test for the happy path, a validation failure, and an auth failure, per `AGENTS.md` 2.1. Contract tests assert the envelope shape, the `code` catalog, and that no response body contains a token, a secret, or an upstream URL. A golden-file test pins the RFC 9457 shape so an error-format regression fails the build.
@@ -296,4 +300,5 @@ Each route gets a table-driven test for the happy path, a validation failure, an
 
 1. Upload size caps per content type, to be set once TikTok's current limits are re-verified.
 2. Whether the operator login is local credentials or SSO. The specs assume local credentials with `password_hash` until told otherwise.
-3. The `range` options for `/videos/{id}/stats`.
+3. ~~The `range` options for `/videos/{id}/stats`.~~ Closed by `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md`: `7d`, `30d`, `90d`, default `30d`.
+4. Retention and downsampling for `video_stats` rows.

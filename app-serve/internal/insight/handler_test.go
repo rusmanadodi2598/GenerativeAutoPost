@@ -171,22 +171,6 @@ func TestVideoRouteAnswers404WhenUpstreamOmitsTheID(t *testing.T) {
 	}
 }
 
-func TestStatsRouteStoresSnapshotAndCarriesFetchedAt(t *testing.T) {
-	h := newHarness(t)
-	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(11)}}
-	rec := h.do(t, "GET", "/videos/"+testVideo+"/stats?account_id="+testAccount, "")
-	if rec.Code != 200 {
-		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
-	}
-	data := decodeData(t, rec)
-	if data["fetched_at"] != "2026-10-12T09:00:00Z" {
-		t.Fatalf("fetched_at = %v", data["fetched_at"])
-	}
-	if h.store.writes != 1 {
-		t.Fatalf("snapshot writes = %d", h.store.writes)
-	}
-}
-
 func TestRefreshRouteAppendsEveryTime(t *testing.T) {
 	h := newHarness(t)
 	h.tiktok.videos = []tiktokclient.Video{{ID: testVideo, ViewCount: count(11)}}

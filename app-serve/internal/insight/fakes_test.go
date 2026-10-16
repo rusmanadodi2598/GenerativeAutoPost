@@ -123,6 +123,22 @@ func (f *fakeStore) LatestStats(_ context.Context, videoID string) (StatSnapshot
 	return StatSnapshot{}, apierror.New(apierror.CodeNotFound, 0, "Video stats not found.")
 }
 
+// ListStats returns the stored points inside the window, oldest first, capped
+// at limit. It mirrors the repository's newest-first read and reverse.
+func (f *fakeStore) ListStats(_ context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error) {
+	var window []StatSnapshot
+	for _, snap := range f.stats {
+		if snap.VideoID == videoID && !snap.FetchedAt.Before(since) {
+			window = append(window, snap)
+		}
+	}
+	truncated := len(window) > limit
+	if truncated {
+		window = window[len(window)-limit:]
+	}
+	return window, truncated, nil
+}
+
 // InsertCreatorSnapshot appends the snapshot.
 func (f *fakeStore) InsertCreatorSnapshot(_ context.Context, rec CreatorSnapshot) (CreatorSnapshot, error) {
 	if f.creatorsErr != nil {

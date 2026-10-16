@@ -79,7 +79,8 @@ func TestValidIDTable(t *testing.T) {
 func TestServiceOwnedGetDeleteDenyForeign(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
-	obj, err := svc.Upload(ctx, "acct-1", MediaKindVideo, "video/mp4", 4, 0, strings.NewReader("data"))
+	obj, err := svc.Upload(ctx, UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: 4, Body: strings.NewReader("data")})
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}

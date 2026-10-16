@@ -61,16 +61,16 @@ type AttemptWriter interface {
 }
 
 // IdempotencyClaimer claims one outcome per key and body hash.
-// *IdempotencyStore satisfies it directly.
+// *idempotency.Store satisfies it directly.
 type IdempotencyClaimer interface {
 	Begin(ctx context.Context, key, bodyHash string) ([]byte, error)
 	Complete(ctx context.Context, key, bodyHash string, response []byte) error
+	Release(ctx context.Context, key, bodyHash string) error
 }
 
 var (
-	_ Poster             = (*tiktokclient.Client)(nil)
-	_ AttemptWriter      = (*Repository)(nil)
-	_ IdempotencyClaimer = (*IdempotencyStore)(nil)
+	_ Poster        = (*tiktokclient.Client)(nil)
+	_ AttemptWriter = (*Repository)(nil)
 )
 
 // UploadPlan tells the caller how to deliver the bytes. It never carries the

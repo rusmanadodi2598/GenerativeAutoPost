@@ -11,6 +11,7 @@
 package media
 
 import (
+	"crypto/sha256"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,16 +25,19 @@ import (
 // result means no session is attached, so the handler answers 401.
 type SessionAccount func(*gin.Context) (string, bool)
 
-// Handler serves the media HTTP surface over one Service and Store.
+// Handler serves the media HTTP surface over one Service, one Store, and
+// one idempotency guard. A nil guard means uploads are not idempotent.
 type Handler struct {
 	svc     *Service
 	store   Store
+	guard   UploadGuard
 	session SessionAccount
 }
 
-// NewHandler wires the media handlers to validation, storage, and sessions.
-func NewHandler(svc *Service, store Store, session SessionAccount) *Handler {
-	return &Handler{svc: svc, store: store, session: session}
+// NewHandler wires the media handlers to validation, storage, replay, and
+// sessions.
+func NewHandler(svc *Service, store Store, guard UploadGuard, session SessionAccount) *Handler {
+	return &Handler{svc: svc, store: store, guard: guard, session: session}
 }
 
 // Upload accepts one multipart file part and stores it after validation.
@@ -82,11 +86,41 @@ func (h *Handler) Upload(c *gin.Context) {
 		contentType = sniffContentType(file)
 	}
 
-	obj, err := h.svc.Upload(c.Request.Context(), accountID, kind, contentType, header.Size, durationMs, file)
+	checksum := c.GetHeader(checksumHeader)
+	if h.guard == nil {
+		// No declared replay key: validate the header on its own so a
+		// malformed checksum still fails before the file is read.
+		var ok bool
+		checksum, ok = uploadChecksum(checksum)
+		if !ok {
+			writeValidation(c, "Checksum-SHA256 must be 64 lowercase hex characters.")
+			return
+		}
+	}
+
+	claim, err := h.claimUpload(c)
 	if err != nil {
 		writeError(c, err)
 		return
 	}
+	if claim.replay != nil {
+		h.writeReplay(c, claim.replay)
+		return
+	}
+	if claim.claimed() {
+		checksum = claim.checksum
+	}
+
+	obj, err := h.svc.Upload(c.Request.Context(), UploadRequest{
+		AccountID: accountID, Kind: kind, ContentType: contentType, Size: header.Size,
+		DurationMs: durationMs, ExpectedChecksum: checksum, Body: file,
+	})
+	if err != nil {
+		h.abandonUpload(c, claim)
+		writeError(c, missingAsNotFound(err))
+		return
+	}
+	h.finishUpload(c, claim, obj)
 	h.writeSuccess(c, http.StatusCreated, mediaView{obj})
 }
 
@@ -132,6 +166,31 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// checksumHeader carries the client declared SHA-256 of the file bytes in hex.
+// The upload handler validates its shape so the claim runs on a normalized
+// value, never on a raw header string.
+const checksumHeader = "Checksum-SHA256"
+
+// uploadChecksum normalizes the Checksum-SHA256 header to a lowercase hex
+// digest. An absent header is legal and means the client sends no declared
+// checksum.
+func uploadChecksum(raw string) (string, bool) {
+	if raw == "" {
+		return "", true
+	}
+	digest := strings.ToLower(strings.TrimSpace(raw))
+	if len(digest) != sha256.Size*2 {
+		return "", false
+	}
+	for _, c := range digest {
+		if c >= '0' && c <= '9' || c >= 'a' && c <= 'f' {
+			continue
+		}
+		return "", false
+	}
+	return digest, true
 }
 
 // uploadKind accepts only the two supported kinds. An empty value means

@@ -10,7 +10,10 @@
 // @since     2026-10-12
 package media
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 // MediaKind identifies the media payload type.
 type MediaKind string
@@ -53,4 +56,17 @@ type ChunkRecord struct {
 	First    int64  `json:"first"`
 	Last     int64  `json:"last"`
 	Total    int64  `json:"total"`
+}
+
+// UploadRequest is one upload's declared metadata plus its body stream.
+// ExpectedChecksum is the client declared SHA-256, empty when the client did
+// not send one; the service verifies it before anything is stored.
+type UploadRequest struct {
+	AccountID        string
+	Kind             MediaKind
+	ContentType      string
+	Size             int64
+	DurationMs       int64
+	ExpectedChecksum string
+	Body             io.Reader
 }

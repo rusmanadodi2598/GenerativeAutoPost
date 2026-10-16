@@ -60,25 +60,27 @@ func NewService(store Store, cfg ServiceConfig, logger *slog.Logger) *Service {
 // Upload validates the declared metadata, checksums the bytes while reading,
 // then stores them. The declared size is checked against MaxBytes and the
 // stream is read one byte past that cap so an under-declared size fails too.
-func (s *Service) Upload(ctx context.Context, accountID string, kind MediaKind, contentType string, size int64, durationMs int64, r io.Reader) (MediaObject, error) {
-	if accountID == "" {
+// A declared checksum is verified before the store is touched, so a mismatched
+// header never leaves a stored object behind.
+func (s *Service) Upload(ctx context.Context, req UploadRequest) (MediaObject, error) {
+	if req.AccountID == "" {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0, "account id is required")
 	}
-	if size <= 0 {
+	if req.Size <= 0 {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0, "media size must be greater than zero")
 	}
-	if s.cfg.MaxBytes > 0 && size > s.cfg.MaxBytes {
+	if s.cfg.MaxBytes > 0 && req.Size > s.cfg.MaxBytes {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0,
 			fmt.Sprintf("media size exceeds the %d byte limit", s.cfg.MaxBytes))
 	}
-	if !s.allowedType(contentType) {
+	if !s.allowedType(req.ContentType) {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0,
-			fmt.Sprintf("content type %q is not allowed", contentType))
+			fmt.Sprintf("content type %q is not allowed", req.ContentType))
 	}
-	if durationMs < 0 {
+	if req.DurationMs < 0 {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0, "duration must not be negative")
 	}
-	if s.cfg.MaxDurationMs > 0 && durationMs > s.cfg.MaxDurationMs {
+	if s.cfg.MaxDurationMs > 0 && req.DurationMs > s.cfg.MaxDurationMs {
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0,
 			fmt.Sprintf("media duration exceeds the %d ms limit", s.cfg.MaxDurationMs))
 	}
@@ -89,7 +91,7 @@ func (s *Service) Upload(ctx context.Context, accountID string, kind MediaKind, 
 	}
 
 	hash := sha256.New()
-	reader := io.TeeReader(r, hash)
+	reader := io.TeeReader(req.Body, hash)
 	if s.cfg.MaxBytes > 0 {
 		reader = io.LimitReader(reader, s.cfg.MaxBytes+1)
 	}
@@ -101,15 +103,20 @@ func (s *Service) Upload(ctx context.Context, accountID string, kind MediaKind, 
 		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0,
 			fmt.Sprintf("media size exceeds the %d byte limit", s.cfg.MaxBytes))
 	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	if req.ExpectedChecksum != "" && !strings.EqualFold(digest, req.ExpectedChecksum) {
+		return MediaObject{}, apierror.New(apierror.CodeValidationFailed, 0,
+			"Checksum-SHA256 does not match the uploaded file.")
+	}
 
 	obj := MediaObject{
 		ID:             id.String(),
-		OwnerID:        accountID,
-		Kind:           kind,
-		ContentType:    contentType,
+		OwnerID:        req.AccountID,
+		Kind:           req.Kind,
+		ContentType:    req.ContentType,
 		ByteSize:       int64(len(payload)),
-		ChecksumSHA256: hex.EncodeToString(hash.Sum(nil)),
-		DurationMs:     durationMs,
+		ChecksumSHA256: digest,
+		DurationMs:     req.DurationMs,
 		Storage:        MediaStorage(s.cfg.Driver),
 		CreatedAt:      time.Now().UTC(),
 	}

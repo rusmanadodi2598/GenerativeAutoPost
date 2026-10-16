@@ -27,6 +27,7 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/media"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/crypto"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/httpapi"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/idempotency"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/ratelimit"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/publish"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
@@ -73,12 +74,13 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 	session := operatorSession()
 
 	attempts := publish.NewRepository(pool)
+	idempotencyStore := idempotency.New(client, idempotencyTTL)
 	insightSvc := insight.NewService(insight.Config{
 		Videos: tiktok, Accounts: accounts, Store: insight.NewRepository(pool),
 	})
 	publishSvc := publish.NewService(publish.Config{
 		Poster: tiktok, Accounts: accounts, Creators: creatorOptions{insightSvc},
-		Attempts: attempts, Idempotency: publish.NewIdempotencyStore(client, idempotencyTTL),
+		Attempts: attempts, Idempotency: idempotencyStore,
 		MediaHost: cfg.MediaPublicBaseURL,
 	}).WithChunkProxy(publish.ChunkServiceConfig{
 		Attempts: attempts, Chunks: attempts, Plans: publish.NewMemoryPlanStore(),
@@ -113,7 +115,9 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		Accounts: func(r gin.IRouter) {
 			account.RegisterRoutes(r, account.NewHandler(accounts, session, auth.RequireCSRF()))
 		},
-		Media: func(r gin.IRouter) { media.RegisterRoutes(r, media.NewHandler(mediaSvc, store, session)) },
+		Media: func(r gin.IRouter) {
+			media.RegisterRoutes(r, media.NewHandler(mediaSvc, store, idempotencyStore, session))
+		},
 		Publish: func(r gin.IRouter) {
 			publish.RegisterRoutes(r, publish.NewHandler(publishSvc, attempts, publishSvc, session, publish.HandlerConfig{MaxChunkBytes: cfg.ChunkMaxBytes}))
 		},

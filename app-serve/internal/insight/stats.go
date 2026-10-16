@@ -12,7 +12,9 @@ package insight
 
 import (
 	"context"
+	"time"
 
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
@@ -33,6 +35,7 @@ type AccountResolver interface {
 type SnapshotStore interface {
 	InsertStats(ctx context.Context, snap StatSnapshot) (StatSnapshot, error)
 	LatestStats(ctx context.Context, videoID string) (StatSnapshot, error)
+	ListStats(ctx context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error)
 	InsertCreatorSnapshot(ctx context.Context, rec CreatorSnapshot) (CreatorSnapshot, error)
 	LatestCreatorSnapshot(ctx context.Context, accountID string) (CreatorSnapshot, error)
 }
@@ -67,6 +70,36 @@ func (s *Service) VideoStats(ctx context.Context, operatorID, accountID, videoID
 		return stored, nil
 	}
 	return fetched, err
+}
+
+// StatsSeries reads the stored history for one window. Only the newest point is
+// freshness checked, so reading a chart appends at most one point and never
+// refetches history: the console can read a series as often as it likes
+// without spending TikTok status quota.
+func (s *Service) StatsSeries(ctx context.Context, operatorID, accountID, videoID string, window StatRange) (StatSeries, error) {
+	if _, err := s.access(ctx, operatorID, accountID); err != nil {
+		return StatSeries{}, err
+	}
+	days, ok := statRangeDays[window]
+	if !ok {
+		return StatSeries{}, apierror.New(apierror.CodeValidationFailed, 0,
+			"Stats range must be one of 7d, 30d, 90d.")
+	}
+	latest, err := s.VideoStats(ctx, operatorID, accountID, videoID)
+	if err != nil {
+		return StatSeries{}, err
+	}
+	since := s.cfg.Now().AddDate(0, 0, -days)
+	points, truncated, err := s.cfg.Store.ListStats(ctx, videoID, since, maxSeriesPoints)
+	if err != nil {
+		return StatSeries{}, err
+	}
+	if len(points) == 0 {
+		// The newest point can predate the window; surfacing it keeps the
+		// console showing the last known value rather than an empty chart.
+		points = append(points, latest)
+	}
+	return StatSeries{VideoID: videoID, Range: window, Points: points, Truncated: truncated}, nil
 }
 
 // RefreshStats always fetches and appends, so the series keeps a point per

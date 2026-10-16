@@ -52,7 +52,7 @@ func TestUploadHandlerFailsWithoutConfigCap(t *testing.T) {
 		AllowedTypes:  []string{"video/mp4"},
 	}, slog.New(slog.DiscardHandler))
 	session := func(*gin.Context) (string, bool) { return "acct-1", true }
-	RegisterRoutes(router, NewHandler(svc, store, session))
+	RegisterRoutes(router, NewHandler(svc, store, nil, session))
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, uploadRequest(t, "video/mp4", "clip.mp4", "x",

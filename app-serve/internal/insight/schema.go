@@ -10,7 +10,11 @@
 // @since     2026-10-12
 package insight
 
-import "time"
+import (
+	"time"
+
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
+)
 
 // StatSnapshot is one point of the video stats time series.
 type StatSnapshot struct {
@@ -21,6 +25,53 @@ type StatSnapshot struct {
 	CommentCount *int64    `json:"comment_count,omitempty"`
 	ShareCount   *int64    `json:"share_count,omitempty"`
 	FetchedAt    time.Time `json:"fetched_at"`
+}
+
+// StatRange is one of the closed window choices the stats series accepts.
+// The set is closed because point density follows the manual refresh rhythm:
+// a freeform window would promise coverage the append-only history cannot keep.
+type StatRange string
+
+// Supported stats windows with their day widths.
+const (
+	StatRange7d  StatRange = "7d"
+	StatRange30d StatRange = "30d"
+	StatRange90d StatRange = "90d"
+)
+
+// statRangeDays widths one range to the number of days the series covers.
+var statRangeDays = map[StatRange]int{
+	StatRange7d:  7,
+	StatRange30d: 30,
+	StatRange90d: 90,
+}
+
+// maxSeriesPoints caps one series response so a long history never becomes an
+// unbounded read.
+const maxSeriesPoints = 500
+
+// parseRange maps the raw query value to a window, defaulting to 30 days.
+// An unknown value is rejected rather than silently defaulted, so a client
+// typo cannot hide behind data it did not ask for.
+func parseRange(raw string) (StatRange, error) {
+	if raw == "" {
+		return StatRange30d, nil
+	}
+	window := StatRange(raw)
+	if _, ok := statRangeDays[window]; !ok {
+		return "", apierror.New(apierror.CodeValidationFailed, 0,
+			"Stats range must be one of 7d, 30d, 90d.")
+	}
+	return window, nil
+}
+
+// StatSeries is the windowed stats answer: the covered window, the points in
+// ascending fetched_at order, and whether the point cap cut older history off.
+type StatSeries struct {
+	VideoID   string         `json:"video_id"`
+	Range     StatRange      `json:"range"`
+	Points    []StatSnapshot `json:"points"`
+	Truncated bool           `json:"truncated"`
 }
 
 // CreatorSnapshot is one cached view of a creator privacy and profile record.

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/idempotency"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
@@ -158,7 +159,7 @@ func (f *fakeIdempotency) Begin(_ context.Context, key, hash string) ([]byte, er
 		return nil, nil
 	}
 	if stored != hash {
-		return nil, ErrIdempotencyKeyReused
+		return nil, idempotency.ErrKeyReused
 	}
 	return f.responses[key], nil
 }
@@ -166,9 +167,19 @@ func (f *fakeIdempotency) Begin(_ context.Context, key, hash string) ([]byte, er
 // Complete stores the response for a later replay.
 func (f *fakeIdempotency) Complete(_ context.Context, key, hash string, response []byte) error {
 	if stored, ok := f.hashes[key]; !ok || stored != hash {
-		return ErrIdempotencyKeyReused
+		return idempotency.ErrKeyReused
 	}
 	f.responses[key] = response
+	return nil
+}
+
+// Release drops the claim for a later retry.
+func (f *fakeIdempotency) Release(_ context.Context, key, hash string) error {
+	if stored, ok := f.hashes[key]; !ok || stored != hash {
+		return idempotency.ErrKeyReused
+	}
+	delete(f.hashes, key)
+	delete(f.responses, key)
 	return nil
 }
 

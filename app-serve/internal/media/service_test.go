@@ -35,8 +35,8 @@ func newTestService(t *testing.T) *Service {
 func TestUploadRejectsDisallowedContentType(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/quicktime", 10, 1000, strings.NewReader("payload"))
+	_, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/quicktime", Size: 10, DurationMs: 1000, Body: strings.NewReader("payload")})
 
 	if err == nil {
 		t.Fatal("expected a rejection for a disallowed content type")
@@ -47,8 +47,8 @@ func TestUploadRejectsOversizePayload(t *testing.T) {
 	svc := newTestService(t)
 	body := strings.Repeat("a", 1025)
 
-	_, err := svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/mp4", int64(len(body)), 1000, strings.NewReader(body))
+	_, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: int64(len(body)), DurationMs: 1000, Body: strings.NewReader(body)})
 
 	if err == nil {
 		t.Fatal("expected a rejection for an oversize payload")
@@ -59,8 +59,8 @@ func TestUploadRejectsEmptySize(t *testing.T) {
 	svc := newTestService(t)
 
 	for _, size := range []int64{0, -1} {
-		_, err := svc.Upload(context.Background(), "acct-1", MediaKindPhoto,
-			"image/jpeg", size, 0, strings.NewReader("x"))
+		_, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindPhoto,
+			ContentType: "image/jpeg", Size: size, Body: strings.NewReader("x")})
 		if err == nil {
 			t.Errorf("size %d was accepted, want rejection", size)
 		}
@@ -71,8 +71,8 @@ func TestUploadAcceptsAllowedTypeAndChecksumsBytes(t *testing.T) {
 	svc := newTestService(t)
 	payload := "exact bytes"
 
-	obj, err := svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/mp4", int64(len(payload)), 1200, strings.NewReader(payload))
+	obj, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: int64(len(payload)), DurationMs: 1200, Body: strings.NewReader(payload)})
 	if err != nil {
 		t.Fatalf("upload: %v", err)
 	}
@@ -98,8 +98,8 @@ func TestUploadAcceptsAllowedTypeAndChecksumsBytes(t *testing.T) {
 func TestUploadRejectsDurationOverCap(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/mp4", 10, 60_001, strings.NewReader("payload"))
+	_, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: 10, DurationMs: 60_001, Body: strings.NewReader("payload")})
 
 	if err == nil {
 		t.Fatal("expected a rejection for a duration over the cap")
@@ -109,8 +109,8 @@ func TestUploadRejectsDurationOverCap(t *testing.T) {
 func TestUploadRejectsUnknownAccount(t *testing.T) {
 	svc := newTestService(t)
 
-	_, err := svc.Upload(context.Background(), "", MediaKindVideo,
-		"video/mp4", 10, 100, strings.NewReader("payload"))
+	_, err := svc.Upload(context.Background(), UploadRequest{Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: 10, DurationMs: 100, Body: strings.NewReader("payload")})
 
 	if err == nil {
 		t.Fatal("expected a rejection for an empty account id")
@@ -199,8 +199,8 @@ func TestUploadReadsStreamEvenWhenDeclaredSizeIsSmall(t *testing.T) {
 
 	// The service reads one byte past the cap to catch an under-declared size,
 	// so the payload never reaches the store.
-	_, err := svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/mp4", 8, 100, strings.NewReader(strings.Repeat("z", 64)))
+	_, err := svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: 8, DurationMs: 100, Body: strings.NewReader(strings.Repeat("z", 64))})
 
 	if err == nil {
 		t.Fatal("expected a rejection for a stream beyond the cap")
@@ -220,8 +220,8 @@ func TestUploadReadsAtMostCapPlusOneBytes(t *testing.T) {
 		AllowedTypes:  []string{"video/mp4"},
 	}, slog.New(slog.DiscardHandler))
 
-	_, _ = svc.Upload(context.Background(), "acct-1", MediaKindVideo,
-		"video/mp4", 8, 100, reader)
+	_, _ = svc.Upload(context.Background(), UploadRequest{AccountID: "acct-1", Kind: MediaKindVideo,
+		ContentType: "video/mp4", Size: 8, DurationMs: 100, Body: reader})
 
 	if reader.read != 9 {
 		t.Errorf("read %d bytes, want 9: one past the cap before rejection", reader.read)

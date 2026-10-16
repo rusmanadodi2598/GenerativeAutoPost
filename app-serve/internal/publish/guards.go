@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/idempotency"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
 
@@ -55,9 +56,9 @@ func (s *Service) claimDraft(ctx context.Context, key string, req InitDraftReque
 // begin claims an already-encoded body. A same key and same body repeat
 // replays the stored response; a changed body is a 409.
 func (s *Service) begin(ctx context.Context, key string, body []byte) (string, *InitResult, error) {
-	hash := BodyHash(body)
+	hash := idempotency.BodyHash(body)
 	raw, err := s.idempotency.Begin(ctx, key, hash)
-	if errors.Is(err, ErrIdempotencyKeyReused) {
+	if errors.Is(err, idempotency.ErrKeyReused) {
 		return "", nil, apierror.New(apierror.CodeIdempotencyKeyReused, 409, "Idempotency key was already used with a different request body.")
 	}
 	if err != nil {

@@ -38,7 +38,7 @@ func realRouteTables(session func(*gin.Context) (string, bool)) Routes {
 		Accounts: func(r gin.IRouter) {
 			account.RegisterRoutes(r, account.NewHandler(nil, session, nil))
 		},
-		Media: func(r gin.IRouter) { media.RegisterRoutes(r, media.NewHandler(nil, nil, session)) },
+		Media: func(r gin.IRouter) { media.RegisterRoutes(r, media.NewHandler(nil, nil, nil, session)) },
 		Publish: func(r gin.IRouter) {
 			publish.RegisterRoutes(r, publish.NewHandler(nil, nil, nil, session, publish.HandlerConfig{}))
 		},

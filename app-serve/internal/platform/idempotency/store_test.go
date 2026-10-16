@@ -1,14 +1,14 @@
-// Package publish pins the Idempotency-Key store against miniredis.
+// Package idempotency pins the Idempotency-Key store against miniredis.
 //
-// @file      internal/publish/idempotency_test.go
-// @for       Unit tests for claim, replay, reuse, conflict, and expiry.
+// @file      internal/platform/idempotency/store_test.go
+// @for       Claim, replay, reuse, conflict, release, and expiry of the store.
 // @uses      testing, miniredis/v2, redis/go-redis/v9, internal/apierror
-// @reason    Duplicate inits are the risk this store carries.
+// @reason    Duplicate requests are the risk this store carries.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
 // @stability stable
 // @since     2026-10-12
-package publish
+package idempotency
 
 import (
 	"context"
@@ -23,12 +23,12 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/redisx"
 )
 
-func newIdemStore(t *testing.T, ttl time.Duration) (*IdempotencyStore, *miniredis.Miniredis) {
+func newIdemStore(t *testing.T, ttl time.Duration) (*Store, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	return NewIdempotencyStore(client, ttl), mr
+	return New(client, ttl), mr
 }
 
 func wantCode(t *testing.T, err error, code apierror.Code) {
@@ -80,8 +80,8 @@ func TestIdempotencySameKeyDifferentBodyIsReuse(t *testing.T) {
 		t.Fatalf("first claim: %v", err)
 	}
 	_, err := store.Begin(ctx, "k1", BodyHash([]byte("b")))
-	if !errors.Is(err, ErrIdempotencyKeyReused) {
-		t.Fatalf("err = %v, want ErrIdempotencyKeyReused", err)
+	if !errors.Is(err, ErrKeyReused) {
+		t.Fatalf("err = %v, want ErrKeyReused", err)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestIdempotencyCompleteRejectsForeignBody(t *testing.T) {
 		t.Fatalf("first claim: %v", err)
 	}
 	err := store.Complete(ctx, "k1", BodyHash([]byte("b")), []byte("{}"))
-	if !errors.Is(err, ErrIdempotencyKeyReused) {
-		t.Fatalf("err = %v, want ErrIdempotencyKeyReused", err)
+	if !errors.Is(err, ErrKeyReused) {
+		t.Fatalf("err = %v, want ErrKeyReused", err)
 	}
 }
 
@@ -129,4 +129,51 @@ func TestIdempotencyRejectsEmptyKey(t *testing.T) {
 	store, _ := newIdemStore(t, time.Minute)
 	_, err := store.Begin(context.Background(), "", BodyHash([]byte("a")))
 	wantCode(t, err, apierror.CodeValidationFailed)
+}
+
+func TestIdempotencyReleaseFreesTheKeyForACorrectedRetry(t *testing.T) {
+	store, _ := newIdemStore(t, time.Minute)
+	ctx := context.Background()
+	hash := BodyHash([]byte("a"))
+	if _, err := store.Begin(ctx, "k1", hash); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := store.Release(ctx, "k1", hash); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	replay, err := store.Begin(ctx, "k1", hash)
+	if err != nil {
+		t.Fatalf("claim after release: %v", err)
+	}
+	if replay != nil {
+		t.Fatalf("replay = %q, want nil so the retry stores its own object", replay)
+	}
+}
+
+func TestIdempotencyReleaseLeavesAForeignClaimAlone(t *testing.T) {
+	store, _ := newIdemStore(t, time.Minute)
+	ctx := context.Background()
+	hash := BodyHash([]byte("a"))
+	if _, err := store.Begin(ctx, "k1", hash); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := store.Complete(ctx, "k1", hash, []byte(`{"id":"1"}`)); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if err := store.Release(ctx, "k1", BodyHash([]byte("other"))); err != nil {
+		t.Fatalf("release with a foreign hash: %v", err)
+	}
+	replay, err := store.Begin(ctx, "k1", hash)
+	if err != nil {
+		t.Fatalf("claim after a foreign release: %v", err)
+	}
+	if string(replay) != `{"id":"1"}` {
+		t.Fatalf("replay = %q, want the stored response to survive", replay)
+	}
+}
+
+func TestIdempotencyReleaseRejectsEmptyInput(t *testing.T) {
+	store, _ := newIdemStore(t, time.Minute)
+	wantCode(t, store.Release(context.Background(), "", "hash"), apierror.CodeValidationFailed)
+	wantCode(t, store.Release(context.Background(), "k1", ""), apierror.CodeValidationFailed)
 }

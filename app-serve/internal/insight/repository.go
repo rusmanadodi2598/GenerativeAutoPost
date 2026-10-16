@@ -125,6 +125,39 @@ func (r *Repository) LatestStats(ctx context.Context, videoID string) (StatSnaps
 	return snap, nil
 }
 
+// ListStats returns the newest points for one video inside the window, oldest
+// first. It reads one row past limit so the caller can tell a full series from
+// a truncated one without a second count query; the newest points win, because
+// a chart truncated at the tail still shows the present.
+func (r *Repository) ListStats(ctx context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error) {
+	const q = `SELECT ` + statsColumns + ` FROM video_stats
+		WHERE video_id = $1 AND fetched_at >= $2 ORDER BY fetched_at DESC LIMIT $3`
+	rows, err := r.pool.Query(ctx, q, videoID, since, limit+1)
+	if err != nil {
+		return nil, false, fmt.Errorf("insight: listing stats: %w", err)
+	}
+	defer rows.Close()
+	points := make([]StatSnapshot, 0, limit)
+	for rows.Next() {
+		snap, err := scanStats(rows)
+		if err != nil {
+			return nil, false, fmt.Errorf("insight: scanning stats row: %w", err)
+		}
+		points = append(points, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("insight: listing stats: %w", err)
+	}
+	truncated := len(points) > limit
+	if truncated {
+		points = points[:limit]
+	}
+	for i, j := 0, len(points)-1; i < j; i, j = i+1, j-1 {
+		points[i], points[j] = points[j], points[i]
+	}
+	return points, truncated, nil
+}
+
 // InsertCreatorSnapshot appends one cached creator record.
 func (r *Repository) InsertCreatorSnapshot(ctx context.Context, rec CreatorSnapshot) (CreatorSnapshot, error) {
 	id, err := uuid.NewV7()
