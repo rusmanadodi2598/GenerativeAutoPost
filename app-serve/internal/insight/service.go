@@ -29,11 +29,12 @@ const defaultStatsTTL = 5 * time.Minute
 
 // Config carries the service dependencies and the cache window.
 type Config struct {
-	Videos   VideoClient
-	Accounts AccountResolver
-	Store    SnapshotStore
-	Now      func() time.Time
-	StatsTTL time.Duration
+	Videos     VideoClient
+	Accounts   AccountResolver
+	Store      SnapshotStore
+	Now        func() time.Time
+	StatsTTL   time.Duration
+	CreatorTTL time.Duration
 }
 
 // Service reads videos upstream and keeps the snapshot history.

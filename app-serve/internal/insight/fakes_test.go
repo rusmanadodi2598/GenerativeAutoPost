@@ -31,14 +31,15 @@ func count(value int64) *int64 { return &value }
 
 // fakeTikTok serves canned upstream reads and records the arguments it got.
 type fakeTikTok struct {
-	page      tiktokclient.VideoPage
-	videos    []tiktokclient.Video
-	info      tiktokclient.UserInfo
-	creator   tiktokclient.CreatorInfo
-	err       error
-	listArgs  []string
-	queryIDs  []string
-	queryUser []string
+	page         tiktokclient.VideoPage
+	videos       []tiktokclient.Video
+	info         tiktokclient.UserInfo
+	creator      tiktokclient.CreatorInfo
+	err          error
+	listArgs     []string
+	queryIDs     []string
+	queryUser    []string
+	creatorCalls int
 }
 
 // ListVideos records the cursor and returns the canned page.
@@ -71,6 +72,7 @@ func (f *fakeTikTok) GetUserInfo(_ context.Context, _ string, fields []string) (
 
 // QueryCreatorInfo returns the canned creator record.
 func (f *fakeTikTok) QueryCreatorInfo(_ context.Context, _ string) (tiktokclient.CreatorInfo, error) {
+	f.creatorCalls++
 	if f.err != nil {
 		return tiktokclient.CreatorInfo{}, f.err
 	}
@@ -151,11 +153,12 @@ func newServiceHarness(t *testing.T) *svcHarness {
 	t.Helper()
 	h := &svcHarness{tiktok: &fakeTikTok{}, store: &fakeStore{}}
 	h.svc = NewService(Config{
-		Videos:   h.tiktok,
-		Accounts: &fakeAccounts{access: "access-token"},
-		Store:    h.store,
-		Now:      func() time.Time { return time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC) },
-		StatsTTL: time.Minute,
+		Videos:     h.tiktok,
+		Accounts:   &fakeAccounts{access: "access-token"},
+		Store:      h.store,
+		Now:        func() time.Time { return time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC) },
+		StatsTTL:   time.Minute,
+		CreatorTTL: time.Minute,
 	})
 	return h
 }

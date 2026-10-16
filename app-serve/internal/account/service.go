@@ -208,3 +208,23 @@ func (s *Service) GetOwned(ctx context.Context, operatorID string, accountID str
 	}
 	return newAccount(rec), nil
 }
+
+// Owned decrypts the access token of one account. Ownership is enforced first,
+// so a foreign id never reaches the decrypt step.
+func (s *Service) Owned(ctx context.Context, operatorID, accountID string) (string, error) {
+	rec, err := s.store.GetOwned(ctx, operatorID, accountID)
+	if err != nil {
+		return "", err
+	}
+	acct := newAccount(rec)
+	if acct.Revoked() {
+		s.logger.WarnContext(ctx, "resolving access token for a revoked account", "account_id", accountID)
+		return "", errTokenDecrypt(errAccountRevoked())
+	}
+	access, _, err := s.keyring.Decrypt(ctx, rec.AccessEnc)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "decrypting access token for resolver", "account_id", accountID, "error", err)
+		return "", errTokenDecrypt(err)
+	}
+	return string(access), nil
+}
