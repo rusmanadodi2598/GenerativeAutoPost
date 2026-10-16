@@ -5,7 +5,7 @@
 // @uses      crypto/hmac, crypto/sha256, net/http, net/url, sort, time
 // @reason    R2 is S3 compatible and SigV4 needs no SDK dependency.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
-// @layer     util
+// @layer     repository
 // @stability stable
 // @since     2026-10-16
 package r2
@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -67,7 +68,7 @@ func canonicalRequest(req *http.Request, payloadHash string) (string, string) {
 	headers, signed := canonicalHeaders(req)
 	return strings.Join([]string{
 		req.Method,
-		canonicalURI(req.URL.EscapedPath()),
+		canonicalURI(req.URL.Path),
 		canonicalQuery(req.URL.RawQuery),
 		headers,
 		signed,
@@ -120,19 +121,23 @@ func canonicalURI(path string) string {
 	return out
 }
 
-// canonicalQuery sorts the encoded query pairs by key then value.
+// canonicalQuery decodes the raw query and re-encodes every pair once, so an
+// already escaped value is not escaped a second time, then sorts by key and
+// value. A query this client never sends is signed defensively.
 func canonicalQuery(raw string) string {
 	if raw == "" {
 		return ""
 	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return ""
+	}
 	type pair struct{ key, value string }
-	pairs := make([]pair, 0, strings.Count(raw, "&")+1)
-	for _, part := range strings.Split(raw, "&") {
-		if part == "" {
-			continue
+	pairs := make([]pair, 0, len(values))
+	for key, list := range values {
+		for _, value := range list {
+			pairs = append(pairs, pair{uriEncode(key, true), uriEncode(value, true)})
 		}
-		key, value, _ := strings.Cut(part, "=")
-		pairs = append(pairs, pair{uriEncode(key, true), uriEncode(value, true)})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		if pairs[i].key != pairs[j].key {

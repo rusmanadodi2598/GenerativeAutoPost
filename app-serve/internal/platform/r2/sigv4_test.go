@@ -76,3 +76,17 @@ func TestCanonicalURIPreservesSlashes(t *testing.T) {
 		t.Errorf("canonical uri = %q, want %q", got, want)
 	}
 }
+
+// TestCanonicalURIEncodesAnEscapedRequestPathOnce proves a request path that
+// already carries an escape is not escaped a second time, which would sign a
+// different path than the client sends.
+func TestCanonicalURIEncodesAnEscapedRequestPathOnce(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://example.amazonaws.com/bucket/obj%20name.bin", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+
+	if got, want := canonicalURI(req.URL.Path), "/bucket/obj%20name.bin"; got != want {
+		t.Errorf("canonical uri = %q, want %q", got, want)
+	}
+}

@@ -132,14 +132,21 @@ func TestDeleteObjectMissIsTyped(t *testing.T) {
 	}
 }
 
-// TestCheckProvesCredentials proves a 2xx HeadBucket passes and a 403 fails.
-func TestCheckProvesCredentials(t *testing.T) {
+// TestCheckWritesAndRemovesProbe proves the boot probe exercises write
+// permission and cleans up after itself.
+func TestCheckWritesAndRemovesProbe(t *testing.T) {
+	var put, deleted bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodHead && r.URL.Path == "/media" {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/media/"+probeKey:
+			put = true
 			w.WriteHeader(http.StatusOK)
-			return
+		case r.Method == http.MethodDelete && r.URL.Path == "/media/"+probeKey:
+			deleted = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusForbidden)
 		}
-		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer server.Close()
 
@@ -147,11 +154,20 @@ func TestCheckProvesCredentials(t *testing.T) {
 	if err := client.Check(context.Background()); err != nil {
 		t.Fatalf("Check: %v", err)
 	}
+	if !put || !deleted {
+		t.Errorf("probe put=%v delete=%v, want both", put, deleted)
+	}
+}
 
-	denied := newTestClient(t, server.URL)
-	denied.bucket = "other"
-	if err := denied.Check(context.Background()); err == nil {
-		t.Fatal("Check passed for a forbidden bucket")
+// TestCheckFailsOnDeniedCredentials proves a rejected probe write fails boot.
+func TestCheckFailsOnDeniedCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	if err := newTestClient(t, server.URL).Check(context.Background()); err == nil {
+		t.Fatal("Check passed for a forbidden endpoint")
 	}
 }
 

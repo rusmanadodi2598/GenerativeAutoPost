@@ -11,6 +11,7 @@
 package r2
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -148,26 +149,29 @@ func (c *Client) DeleteObject(ctx context.Context, bucket, key string) error {
 	}
 }
 
-// Check proves the endpoint is reachable and the credentials sign a valid
-// request, so a bad credential fails at boot instead of the first upload.
-func (c *Client) Check(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.bucketURL(c.bucket).String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("x-amz-content-sha256", emptyBodyHash)
-	c.authorize(req, emptyBodyHash)
+// probeKey is the reserved key Check writes and removes. A leftover probe is
+// harmless: the next boot overwrites it before removing it.
+const probeKey = ".genauto-boot-probe"
 
-	res, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("r2: HEAD %s: %w", req.URL.Path, err)
+// Check proves the endpoint is reachable and the credentials can write, the
+// permission uploads need. It writes and removes a small probe key rather than
+// a HeadBucket, because a bucket-scoped token that can write objects may not
+// hold the bucket-level list permission HeadBucket requires. It is a one-shot
+// boot gate with no retry: a transient failure is a process restart, and a
+// retry would only delay the failure a bad credential should have at boot.
+func (c *Client) Check(ctx context.Context) error {
+	body := []byte("genauto probe")
+	if err := c.PutObject(ctx, c.bucket, probeKey, bytes.NewReader(body), int64(len(body)), sha256Hex(body)); err != nil {
+		return fmt.Errorf("r2: probe write failed: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, maxErrorBody))
-	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		return nil
+	if err := c.DeleteObject(ctx, c.bucket, probeKey); err != nil {
+		var miss notFoundError
+		if errors.As(err, &miss) {
+			return nil
+		}
+		return fmt.Errorf("r2: probe delete failed: %w", err)
 	}
-	return fmt.Errorf("r2: bucket %s is not reachable with these credentials: status %d", c.bucket, res.StatusCode)
+	return nil
 }
 
 // expectNoContent runs a request whose success carries no body to return.
@@ -193,13 +197,9 @@ func (c *Client) authorize(req *http.Request, payloadHash string) {
 func (c *Client) objectURL(bucket, key string) *url.URL {
 	u := *c.endpoint
 	u.Path = strings.TrimSuffix(c.endpoint.Path, "/") + "/" + bucket + "/" + key
-	return &u
-}
-
-// bucketURL builds endpoint/bucket for the HeadBucket probe.
-func (c *Client) bucketURL(bucket string) *url.URL {
-	u := *c.endpoint
-	u.Path = strings.TrimSuffix(c.endpoint.Path, "/") + "/" + bucket
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
 	return &u
 }
 

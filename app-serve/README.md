@@ -41,5 +41,6 @@ The standard library cannot generate UUIDv7, so `github.com/google/uuid`
 provides the account row identifiers.
 
 The R2 client signs with AWS SigV4 from `crypto/hmac`, `crypto/sha256`, and
-`net/http`. It is about 200 lines and verifiable against the AWS test-suite
-vector, so no AWS SDK is pulled in for three object operations.
+`net/http`. It is around 420 lines across a signer and a client, and it is
+verified against the AWS test-suite vector, so no AWS SDK is pulled in for
+three object operations.

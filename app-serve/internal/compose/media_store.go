@@ -24,7 +24,7 @@ import (
 const mediaStoreCheckTimeout = 10 * time.Second
 
 // mediaStore builds the configured Store. The S3 backend signs with the R2
-// credentials and proves them with a HeadBucket at boot, so a bad key or a bad
+// credentials and proves them with a write probe at boot, so a bad key or a bad
 // endpoint fails the process instead of the first upload.
 func mediaStore(cfg config.Config) (media.Store, error) {
 	switch cfg.MediaDriver {

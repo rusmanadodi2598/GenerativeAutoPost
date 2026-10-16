@@ -26,7 +26,7 @@ func s3Config(endpoint string) config.Config {
 	}
 }
 
-// TestMediaStoreFailsOnDeniedR2Credentials proves a rejected HeadBucket stops
+// TestMediaStoreFailsOnDeniedR2Credentials proves a rejected probe write stops
 // the build instead of surfacing on the first upload.
 func TestMediaStoreFailsOnDeniedR2Credentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -39,7 +39,7 @@ func TestMediaStoreFailsOnDeniedR2Credentials(t *testing.T) {
 	}
 }
 
-// TestMediaStoreBuildsOnReachableBucket proves a 2xx HeadBucket yields a store.
+// TestMediaStoreBuildsOnReachableBucket proves a 2xx probe write yields a store.
 func TestMediaStoreBuildsOnReachableBucket(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

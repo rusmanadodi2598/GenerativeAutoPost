@@ -38,7 +38,7 @@ acceptable answer and a missing answer is not.
 | PostgreSQL | `postgres:17` | `deployment/docker-compose.yml` |
 | Redis | `redis:7` | Sessions, rate limits, idempotency, dedupe, event stream |
 | nginx | `deployment/nginx/app-tiktok.conf` | TLS edge, `/api/v1` proxy, `/webhooks/tiktok` bypasses versioning |
-| Cloudflare R2 | `internal/platform/r2` | SigV4 signed; `MEDIA_DRIVER=s3` proves credentials with a HeadBucket at boot |
+| Cloudflare R2 | `internal/platform/r2` | SigV4 signed; `MEDIA_DRIVER=s3` proves credentials with a write probe at boot |
 
 `/webhooks/tiktok` is mounted outside `/api/v1` on purpose: it is TikTok's
 contract, and it must not move when our version changes.
@@ -156,10 +156,11 @@ Required indexes (per `AGENTS.md` 1.7): `tiktok_accounts(open_id)`,
 | Cloudflare R2 (S3 API) | media | `S3_ACCESS_KEY` plus `S3_SECRET_KEY` SigV4 | per call |
 | Local disk | media | none | n/a |
 
-Every outbound call runs under a context with an explicit timeout and goes
+Every TikTok call runs under a context with an explicit timeout and goes
 through `tiktokclient`, which applies the per-account rate limiter and maps
 upstream errors to the catalog. A 4xx never retries; 429 and 5xx back off with
-jitter and a bounded attempt count.
+jitter and a bounded attempt count. The R2 client sets its own dial, TLS, and
+transfer timeouts and does not go through `tiktokclient`.
 
 ## 6. Redis keys
 

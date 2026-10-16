@@ -65,9 +65,11 @@ not on the first upload.
 **Resolved 2026-10-16.** The gate is open. `internal/platform/r2` implements
 the S3 surface with an in-house AWS SigV4 signer over the standard library, so
 no AWS SDK dependency is added, and `compose.mediaStore` proves the
-credentials with a HeadBucket before returning the store. The `ObjectClient`
+credentials with a write probe before returning the store. The `ObjectClient`
 put seam streams now (`io.Reader` plus a known size and the body SHA-256), so
-the adapter no longer buffers an object to hash it.
+the adapter no longer buffers an object to hash it. The upload service still
+buffers the stream to verify the client checksum before any write, so the seam
+removes the adapter's second copy, not the service's verification buffer.
 
 ## Decision 3: stats series with a `range` enum and refresh-on-read
 

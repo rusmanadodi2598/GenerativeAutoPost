@@ -97,21 +97,28 @@ func (s *S3) Put(ctx context.Context, obj MediaObject, r io.Reader) error {
 	return nil
 }
 
-// readSidecar loads the object's recorded metadata. A missing sidecar yields an
-// empty object, so an object with no recorded owner is denied on read.
-func (s *S3) readSidecar(ctx context.Context, id string) MediaObject {
+// readSidecar loads the object's recorded metadata. A missing sidecar is not
+// fatal and yields an empty object, so an object with no recorded owner is
+// denied on read. Any other failure returns an error, so a broken backend is a
+// storage fault rather than a clean miss.
+func (s *S3) readSidecar(ctx context.Context, id string) (MediaObject, error) {
 	body, err := s.client.GetObject(ctx, s.bucket, keyForID(id)+sidecarSuffix)
 	if err != nil {
-		return MediaObject{}
+		if notFoundError(err) {
+			return MediaObject{}, nil
+		}
+		return MediaObject{}, err
 	}
 	defer func() { _ = body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(body, maxSidecarBytes))
 	if err != nil {
-		return MediaObject{}
+		return MediaObject{}, err
 	}
 	var obj MediaObject
-	_ = json.Unmarshal(raw, &obj)
-	return obj
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return MediaObject{}, err
+	}
+	return obj, nil
 }
 
 // Get returns the key stream plus the metadata sidecar recorded with it.
@@ -126,7 +133,11 @@ func (s *S3) Get(ctx context.Context, id string) (MediaObject, io.ReadCloser, er
 		}
 		return MediaObject{}, nil, apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be read").Wrap(err)
 	}
-	obj := s.readSidecar(ctx, id)
+	obj, err := s.readSidecar(ctx, id)
+	if err != nil {
+		_ = body.Close()
+		return MediaObject{}, nil, apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be read").Wrap(err)
+	}
 	obj.ID = id
 	if obj.Storage == "" {
 		obj.Storage = MediaStorageS3
@@ -142,7 +153,7 @@ func (s *S3) Delete(ctx context.Context, id string) error {
 	if !validID(id) {
 		return apierror.New(apierror.CodeValidationFailed, 0, "media id is invalid")
 	}
-	if err := s.client.DeleteObject(ctx, s.bucket, keyForID(id)); err != nil {
+	if err := s.client.DeleteObject(ctx, s.bucket, keyForID(id)); err != nil && !notFoundError(err) {
 		return apierror.New(apierror.CodeMediaNotStored, 0, "media object could not be deleted").Wrap(err)
 	}
 	if err := s.client.DeleteObject(ctx, s.bucket, keyForID(id)+sidecarSuffix); err != nil && !notFoundError(err) {

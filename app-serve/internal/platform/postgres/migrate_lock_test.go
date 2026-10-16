@@ -23,7 +23,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const lockTestMigrationsDir = "../../../../migrations"
+const (
+	lockTestMigrationsDir = "../../../../migrations"
+	lockTestDatabase      = "genauto_test"
+)
 
 // TestUpFailsFastWhenMigrationLockIsHeld proves lock_timeout bounds the
 // advisory lock wait: a second runner returns a named error instead of
@@ -40,6 +43,18 @@ func TestUpFailsFastWhenMigrationLockIsHeld(t *testing.T) {
 		t.Fatalf("connect holder: %v", err)
 	}
 	defer func() { _ = holder.Close(ctx) }()
+
+	// The lock is held for the whole test, so nothing should apply here; the
+	// guard keeps a future change from turning that into a real migration run
+	// against whatever database the DSN names.
+	var database string
+	if err := holder.QueryRow(ctx, "SELECT current_database()").Scan(&database); err != nil {
+		t.Fatalf("read current_database: %v", err)
+	}
+	if database != lockTestDatabase {
+		t.Fatalf("refusing to run against %q, want %q", database, lockTestDatabase)
+	}
+
 	if _, err := holder.Exec(ctx, "SELECT pg_advisory_lock($1)", migrationLockKey); err != nil {
 		t.Fatalf("hold migration lock: %v", err)
 	}

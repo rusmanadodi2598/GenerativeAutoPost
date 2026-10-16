@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -134,6 +132,11 @@ func lockMigrations(ctx context.Context, tx pgx.Tx, timeout time.Duration) error
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", migrationLockKey); err != nil {
 		return fmt.Errorf("postgres: acquire migration lock: %w", err)
 	}
+	// Restore the default so the DDL that follows is not bounded by the lock
+	// wait bound.
+	if _, err := tx.Exec(ctx, "SELECT set_config('lock_timeout', '0', true)"); err != nil {
+		return fmt.Errorf("postgres: reset lock timeout: %w", err)
+	}
 	return nil
 }
 
@@ -191,32 +194,4 @@ func applyFile(ctx context.Context, tx pgx.Tx, path, version string, down bool) 
 		return fmt.Errorf("write journal: %w", err)
 	}
 	return nil
-}
-
-// migrationFiles maps version to filename for the given direction.
-func migrationFiles(dir, direction string) (map[string]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("postgres: read migrations dir: %w", err)
-	}
-	suffix := "." + direction + ".sql"
-	files := make(map[string]string)
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, suffix) {
-			continue
-		}
-		files[strings.TrimSuffix(name, suffix)] = name
-	}
-	return files, nil
-}
-
-// sortedVersions orders versions by filename, which carries the number prefix.
-func sortedVersions(files map[string]string) []string {
-	versions := make([]string, 0, len(files))
-	for version := range files {
-		versions = append(versions, version)
-	}
-	sort.Strings(versions)
-	return versions
 }
