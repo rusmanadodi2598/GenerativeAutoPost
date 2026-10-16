@@ -135,6 +135,31 @@ func TestLoadWiringFields(t *testing.T) {
 			mutate:  func(m map[string]string) { m["WEBHOOK_THROTTLE_MAX"] = "0" },
 			wantErr: true,
 		},
+		{
+			name: "stats worker bounds fall back to the documented defaults",
+			mutate: func(m map[string]string) {
+				delete(m, "STATS_REFRESH_INTERVAL")
+				delete(m, "STATS_RETENTION")
+			},
+			check: func(t *testing.T, cfg config.Config) {
+				if cfg.StatsRefreshInterval != 3*time.Hour {
+					t.Errorf("StatsRefreshInterval = %v, want 3h", cfg.StatsRefreshInterval)
+				}
+				if cfg.StatsRetention != 168*time.Hour {
+					t.Errorf("StatsRetention = %v, want 168h", cfg.StatsRetention)
+				}
+			},
+		},
+		{
+			name:    "malformed STATS_REFRESH_INTERVAL fails fast",
+			mutate:  func(m map[string]string) { m["STATS_REFRESH_INTERVAL"] = "soon" },
+			wantErr: true,
+		},
+		{
+			name:    "a zero STATS_RETENTION fails fast",
+			mutate:  func(m map[string]string) { m["STATS_RETENTION"] = "0" },
+			wantErr: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

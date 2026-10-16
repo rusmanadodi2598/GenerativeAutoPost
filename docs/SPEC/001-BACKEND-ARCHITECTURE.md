@@ -192,6 +192,8 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 | `MEDIA_PUBLIC_BASE_URL` | Verified domain used for `PULL_FROM_URL` |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | Cloudflare R2 settings |
 | `SESSION_COOKIE_NAME`, `SESSION_TTL` | Session settings |
+| `STATS_REFRESH_INTERVAL` | Stats worker sweep cadence, default `3h` |
+| `STATS_RETENTION` | Stats point age cutoff, default `168h` |
 | `LOG_LEVEL` | slog level |
 
 `.env` lives at `app-serve/.env`. `app-serve/.env.example` is committed with the same keys and no values.
