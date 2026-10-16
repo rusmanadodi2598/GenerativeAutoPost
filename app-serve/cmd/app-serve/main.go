@@ -77,7 +77,7 @@ func run() error {
 	work, stopWorkers := context.WithCancel(context.Background())
 	defer stopWorkers()
 	var workers sync.WaitGroup
-	workers.Add(3)
+	workers.Add(4)
 	go supervised(&workers, logger, "webhook worker", func() {
 		defer workers.Done()
 		app.Worker.Run(work)
@@ -89,6 +89,10 @@ func run() error {
 	go supervised(&workers, logger, "outbox relay", func() {
 		defer workers.Done()
 		app.Reconciler.RunOutbox(work)
+	})
+	go supervised(&workers, logger, "stats sweep", func() {
+		defer workers.Done()
+		app.StatsWorker.Run(work)
 	})
 
 	srv := &http.Server{

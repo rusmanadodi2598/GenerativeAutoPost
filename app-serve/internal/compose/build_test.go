@@ -81,6 +81,9 @@ func TestBuildMountsAQueryableHealthProbe(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /healthz status = %d, want 200", rec.Code)
 	}
+	if app.StatsWorker == nil {
+		t.Fatal("App.StatsWorker is nil, the stats sweep is not wired")
+	}
 }
 
 // TestBuildFailsFastOnABadKey proves a keyring validation fault surfaces

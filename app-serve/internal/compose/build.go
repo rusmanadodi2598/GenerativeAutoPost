@@ -42,6 +42,7 @@ type App struct {
 	Engine      *gin.Engine
 	Reconciler  *webhook.Reconciler
 	Worker      *webhook.Worker
+	StatsWorker *insight.StatsWorker
 	AttemptRows *publish.Repository
 }
 
@@ -75,8 +76,9 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 
 	attempts := publish.NewRepository(pool)
 	idempotencyStore := idempotency.New(client, idempotencyTTL)
+	insightRepo := insight.NewRepository(pool)
 	insightSvc := insight.NewService(insight.Config{
-		Videos: tiktok, Accounts: accounts, Store: insight.NewRepository(pool),
+		Videos: tiktok, Accounts: accounts, Store: insightRepo,
 	})
 	publishSvc := publish.NewService(publish.Config{
 		Poster: tiktok, Accounts: accounts, Creators: creatorOptions{insightSvc},
@@ -106,6 +108,19 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		webhook.ReconcilerConfig{}, logger)
 	reconciler.SetEventSink(newStreamSink(client, logger))
 
+	statsWorker := insight.NewStatsWorker(insight.StatsWorkerConfig{
+		OperatorID: cfg.OperatorID,
+		Videos:     tiktok,
+		Accounts:   accounts,
+		Refresher:  authSvc,
+		Lister:     accountIDs{svc: accounts},
+		Gate:       newGateAdapter(limiter, tiktokclient.FamilyListVideos),
+		Store:      insightRepo,
+		Interval:   cfg.StatsRefreshInterval,
+		Retention:  cfg.StatsRetention,
+		Logger:     logger,
+	})
+
 	engine := httpapi.New(logger).Engine()
 	Mount(engine, Routes{
 		Auth: func(r gin.IRouter) {
@@ -129,7 +144,7 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 			}, logger), webhook.Throttle(webhook.NewIPWindow(window), logger))
 		},
 	})
-	return &App{Engine: engine, Reconciler: reconciler, Worker: worker, AttemptRows: attempts}, nil
+	return &App{Engine: engine, Reconciler: reconciler, Worker: worker, StatsWorker: statsWorker, AttemptRows: attempts}, nil
 }
 
 // operatorSession resolves the operator id the console routes guard on.
