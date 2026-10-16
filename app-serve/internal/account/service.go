@@ -216,14 +216,30 @@ func (s *Service) Owned(ctx context.Context, operatorID, accountID string) (stri
 	if err != nil {
 		return "", err
 	}
+	return s.accessFrom(ctx, rec)
+}
+
+// AccessForAccount decrypts the access token of one account with no operator
+// filter. It serves the background sweep only: handlers keep using Owned.
+func (s *Service) AccessForAccount(ctx context.Context, accountID string) (string, error) {
+	rec, err := s.store.GetSystem(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	return s.accessFrom(ctx, rec)
+}
+
+// accessFrom decrypts one record's access token and refuses revoked rows,
+// since TikTok has already invalidated them.
+func (s *Service) accessFrom(ctx context.Context, rec Record) (string, error) {
 	acct := newAccount(rec)
 	if acct.Revoked() {
-		s.logger.WarnContext(ctx, "resolving access token for a revoked account", "account_id", accountID)
+		s.logger.WarnContext(ctx, "resolving access token for a revoked account", "account_id", rec.ID)
 		return "", errTokenDecrypt(errAccountRevoked())
 	}
 	access, _, err := s.keyring.Decrypt(ctx, rec.AccessEnc)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "decrypting access token for resolver", "account_id", accountID, "error", err)
+		s.logger.ErrorContext(ctx, "decrypting access token for resolver", "account_id", rec.ID, "error", err)
 		return "", errTokenDecrypt(err)
 	}
 	return string(access), nil

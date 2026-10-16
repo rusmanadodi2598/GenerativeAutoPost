@@ -47,10 +47,12 @@ type Record struct {
 }
 
 // Store persists and loads account records. Implementations enforce that an
-// account is only visible to its owning operator.
+// account is only visible to its owning operator, except for GetSystem, which
+// the background sweep needs because it has no operator session.
 type Store interface {
 	UpsertEncrypted(ctx context.Context, rec Record) (Record, error)
 	GetOwned(ctx context.Context, operatorID string, accountID string) (Record, error)
+	GetSystem(ctx context.Context, accountID string) (Record, error)
 	UpdateTokens(ctx context.Context, accountID string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error
 	SetNeedsReauth(ctx context.Context, accountID string, needs bool) error
 	SetRevoked(ctx context.Context, accountID string, at time.Time) error

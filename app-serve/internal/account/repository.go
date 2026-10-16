@@ -131,6 +131,25 @@ func (r *Repository) GetOwned(ctx context.Context, operatorID string, accountID 
 	return rec, nil
 }
 
+// GetSystem loads one account by id with no operator filter. It exists for the
+// background reconcile sweep, which has no operator session; handlers keep
+// using GetOwned.
+func (r *Repository) GetSystem(ctx context.Context, accountID string) (Record, error) {
+	id, err := uuid.Parse(accountID)
+	if err != nil {
+		return Record{}, errAccountNotFound().Wrap(fmt.Errorf("account: parsing account id: %w", err))
+	}
+	const q = `SELECT ` + accountColumns + ` FROM tiktok_accounts WHERE id = $1`
+	rec, err := scanAccount(r.pool.QueryRow(ctx, q, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Record{}, errAccountNotFound()
+	}
+	if err != nil {
+		return Record{}, fmt.Errorf("account: loading account for system read: %w", err)
+	}
+	return rec, nil
+}
+
 // UpdateTokens rotates the stored ciphertext, key id, and expiries in one write.
 func (r *Repository) UpdateTokens(ctx context.Context, accountID string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error {
 	id, err := uuid.Parse(accountID)

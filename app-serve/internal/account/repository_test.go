@@ -195,3 +195,35 @@ func TestWritesOnUnknownAccountAreNotFound(t *testing.T) {
 		t.Run(name, func(t *testing.T) { wantNotFound(t, write()) })
 	}
 }
+
+func TestGetSystemReturnsTheRowForTheSweep(t *testing.T) {
+	repo, pool := fixture(t)
+	ctx := context.Background()
+	operatorID := seedUser(t, pool)
+	rec, err := repo.UpsertEncrypted(ctx, seedRecord(t, operatorID, "open-system"))
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	got, err := repo.GetSystem(ctx, rec.ID)
+	if err != nil {
+		t.Fatalf("GetSystem: %v", err)
+	}
+	if got.OperatorID != operatorID || got.OpenID != "open-system" {
+		t.Fatalf("system read drift: %+v", got)
+	}
+}
+
+func TestGetSystemUnknownIDIsNotFound(t *testing.T) {
+	repo, _ := fixture(t)
+	ctx := context.Background()
+	unknown, err := NewID()
+	if err != nil {
+		t.Fatalf("generate id: %v", err)
+	}
+	if _, err := repo.GetSystem(ctx, unknown); err == nil {
+		t.Fatal("system read succeeded on an unknown id")
+	} else {
+		wantNotFound(t, err)
+	}
+}

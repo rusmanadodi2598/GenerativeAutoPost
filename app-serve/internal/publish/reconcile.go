@@ -14,8 +14,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 )
 
 // OpenAttemptRow is one stale attempt the sweep must poll. The access token is
@@ -99,9 +97,4 @@ func (r *Repository) RecordProgress(ctx context.Context, publishID string, uploa
 		return errAttemptNotFound()
 	}
 	return nil
-}
-
-// errOpenAttemptsUnavailable is the client safe answer when the sweep cannot read.
-func errOpenAttemptsUnavailable(cause error) *apierror.Error {
-	return apierror.New(apierror.CodeServiceUnavailable, 0, "Publish status storage is unavailable.").Wrap(cause)
 }

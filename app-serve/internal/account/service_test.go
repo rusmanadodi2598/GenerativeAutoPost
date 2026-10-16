@@ -86,6 +86,18 @@ func (f *fakeStore) GetOwned(_ context.Context, operatorID string, accountID str
 	return Record{}, errTestNotFound
 }
 
+// GetSystem loads by id with no operator filter, which is the sweep path.
+func (f *fakeStore) GetSystem(_ context.Context, accountID string) (Record, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, rec := range f.records {
+		if rec.ID == accountID {
+			return rec, nil
+		}
+	}
+	return Record{}, errTestNotFound
+}
+
 func (f *fakeStore) UpdateTokens(_ context.Context, accountID string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
