@@ -164,4 +164,5 @@ func RegisterRoutes(r gin.IRouter, h *Handler) {
 	r.GET("/videos/:video_id/stats", h.requireSession, h.Stats)
 	r.POST("/videos/:video_id/stats/refresh", h.requireSession, h.RefreshStats)
 	r.GET("/accounts/:account_id/profile", h.requireSession, h.Profile)
+	r.POST("/accounts/:account_id/creator-info", h.requireSession, h.CreatorInfo)
 }

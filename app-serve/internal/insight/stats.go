@@ -90,26 +90,10 @@ func (s *Service) Profile(ctx context.Context, operatorID, accountID string) (Pr
 	if err != nil {
 		return ProfileView{}, err
 	}
-	creator, err := s.cfg.Videos.QueryCreatorInfo(ctx, access)
+	creator, err := s.CreatorInfo(ctx, operatorID, accountID)
 	if err != nil {
 		return ProfileView{}, err
 	}
-	options := creator.PrivacyLevelOptions
-	if options == nil {
-		options = []string{}
-	}
-	now := s.cfg.Now()
-	// The snapshot is a cache for the publish forms, not the answer to this
-	// request, so a failed write must not fail a read TikTok already answered.
-	_, _ = s.cfg.Store.InsertCreatorSnapshot(ctx, CreatorSnapshot{
-		AccountID:               accountID,
-		PrivacyOptions:          options,
-		CommentDisabled:         creator.CommentDisabled,
-		DuetDisabled:            creator.DuetDisabled,
-		StitchDisabled:          creator.StitchDisabled,
-		MaxVideoPostDurationSec: creator.MaxVideoPostDurationSec,
-		FetchedAt:               now,
-	})
 	return ProfileView{
 		OpenID:                  info.OpenID,
 		DisplayName:             info.DisplayName,
@@ -121,11 +105,11 @@ func (s *Service) Profile(ctx context.Context, operatorID, accountID string) (Pr
 		LikesCount:              ptr(info.LikesCount),
 		VideoCount:              ptr(info.VideoCount),
 		CreatorUsername:         creator.CreatorUsername,
-		PrivacyLevelOptions:     options,
+		PrivacyLevelOptions:     creator.PrivacyLevelOptions,
 		CommentDisabled:         creator.CommentDisabled,
 		DuetDisabled:            creator.DuetDisabled,
 		StitchDisabled:          creator.StitchDisabled,
 		MaxVideoPostDurationSec: creator.MaxVideoPostDurationSec,
-		FetchedAt:               now,
+		FetchedAt:               creator.FetchedAt,
 	}, nil
 }

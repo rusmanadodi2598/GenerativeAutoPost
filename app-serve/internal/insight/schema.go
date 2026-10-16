@@ -27,6 +27,9 @@ type StatSnapshot struct {
 type CreatorSnapshot struct {
 	ID                      string    `json:"id"`
 	AccountID               string    `json:"account_id"`
+	CreatorUsername         string    `json:"creator_username"`
+	CreatorNickname         string    `json:"creator_nickname"`
+	CreatorAvatarURL        string    `json:"creator_avatar_url"`
 	PrivacyOptions          []string  `json:"privacy_level_options"`
 	CommentDisabled         bool      `json:"comment_disabled"`
 	DuetDisabled            bool      `json:"duet_disabled"`

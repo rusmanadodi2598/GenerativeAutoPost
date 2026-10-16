@@ -56,7 +56,7 @@ func TestRevokeMaterialDenialReturnsErrorAndSkipsRevoke(t *testing.T) {
 		t.Fatalf("Revoke ran %d times on a denied material read", refresher.revokeCount())
 	}
 	if accounts.revoked != 0 {
-		t.Fatalf("MarkRevoked ran %d times on a denied material read", accounts.revoked)
+		t.Fatalf("Forget ran %d times on a denied material read", accounts.revoked)
 	}
 }
 

@@ -164,20 +164,20 @@ func TestRevokeClearsLocalStateWhenTikTokFails(t *testing.T) {
 		t.Fatalf("Revoke arg = %q, want access-1", refresher.revokeArg)
 	}
 	if accounts.revoked != 1 {
-		t.Fatalf("MarkRevoked called %d times, want 1", accounts.revoked)
+		t.Fatalf("Forget called %d times, want 1", accounts.revoked)
 	}
 	if accounts.materialOperator != testOperatorID || accounts.materialAccount != "acct-1" {
 		t.Fatalf("RefreshMaterial args = (%q, %q), want (%q, acct-1)", accounts.materialOperator, accounts.materialAccount, testOperatorID)
 	}
 	if accounts.revokeOperator != testOperatorID || accounts.revokeAccount != "acct-1" {
-		t.Fatalf("MarkRevoked args = (%q, %q), want (%q, acct-1)", accounts.revokeOperator, accounts.revokeAccount, testOperatorID)
+		t.Fatalf("Forget args = (%q, %q), want (%q, acct-1)", accounts.revokeOperator, accounts.revokeAccount, testOperatorID)
 	}
 	if !bytes.Contains(logs.Bytes(), []byte("revoking tiktok access token")) {
 		t.Fatalf("revoke failure was not logged, got %q", logs.String())
 	}
 }
 
-func TestRevokeMarkRevokedFailureIsReturned(t *testing.T) {
+func TestRevokeForgetFailureIsReturned(t *testing.T) {
 	refresher := &fakeRefresher{}
 	accounts := &fakeUpserter{
 		accessToken: "access-1",

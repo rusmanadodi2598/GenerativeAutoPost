@@ -97,7 +97,8 @@ func (f *fakeUpserter) MarkNeedsReauth(_ context.Context, operatorID string, acc
 	return f.markErr
 }
 
-func (f *fakeUpserter) MarkRevoked(_ context.Context, operatorID string, accountID string) error {
+// Forget stands in for the revoke write, which clears the stored credentials.
+func (f *fakeUpserter) Forget(_ context.Context, operatorID string, accountID string) error {
 	f.revoked++
 	f.revokeOperator = operatorID
 	f.revokeAccount = accountID

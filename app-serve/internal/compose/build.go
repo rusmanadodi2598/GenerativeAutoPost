@@ -109,6 +109,9 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 			auth.RegisterRoutes(r, authSvc, sessions,
 				auth.RouterConfig{CookieName: cfg.SessionCookieName, CookieTTL: cfg.SessionTTL})
 		},
+		Accounts: func(r gin.IRouter) {
+			account.RegisterRoutes(r, account.NewHandler(accounts, session, auth.RequireCSRF()))
+		},
 		Media: func(r gin.IRouter) { media.RegisterRoutes(r, media.NewHandler(mediaSvc, store, session)) },
 		Publish: func(r gin.IRouter) {
 			publish.RegisterRoutes(r, publish.NewHandler(publishSvc, attempts, publishSvc, session, publish.HandlerConfig{MaxChunkBytes: cfg.ChunkMaxBytes}))

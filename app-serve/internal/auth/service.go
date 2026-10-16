@@ -44,7 +44,10 @@ type AccountUpserter interface {
 	RefreshMaterial(ctx context.Context, operatorID string, accountID string) (refreshToken string, accessToken string, err error)
 	StoreTokens(ctx context.Context, operatorID string, accountID string, tokens tiktokclient.TokenSet) error
 	MarkNeedsReauth(ctx context.Context, operatorID string, accountID string) error
-	MarkRevoked(ctx context.Context, operatorID string, accountID string) error
+	// Forget clears the stored token material and marks the account revoked.
+	// It is the revoke path: stamping the flag alone would leave a usable
+	// ciphertext behind for a credential TikTok already invalidated.
+	Forget(ctx context.Context, operatorID string, accountID string) error
 }
 
 // ServiceConfig carries the settings the OAuth flow reads.

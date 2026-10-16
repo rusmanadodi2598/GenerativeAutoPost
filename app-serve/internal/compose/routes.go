@@ -21,11 +21,12 @@ type MountTable func(gin.IRouter)
 
 // Routes carries one mount function per module.
 type Routes struct {
-	Auth    MountTable
-	Media   MountTable
-	Publish MountTable
-	Insight MountTable
-	Webhook MountTable
+	Auth     MountTable
+	Accounts MountTable
+	Media    MountTable
+	Publish  MountTable
+	Insight  MountTable
+	Webhook  MountTable
 }
 
 // Mount mounts the health probe, the webhook at its root path, and the
@@ -38,6 +39,9 @@ func Mount(engine *gin.Engine, routes Routes) {
 	api := engine.Group("/api/v1")
 	if routes.Auth != nil {
 		routes.Auth(api)
+	}
+	if routes.Accounts != nil {
+		routes.Accounts(api)
 	}
 	if routes.Media != nil {
 		routes.Media(api)

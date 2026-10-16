@@ -125,3 +125,18 @@ func (h *Handler) Profile(c *gin.Context) {
 	}
 	h.writeSuccess(c, http.StatusOK, profile)
 }
+
+// CreatorInfo answers the creator profile and privacy options from the short
+// cache, so the publish form does not pay an upstream call per open.
+func (h *Handler) CreatorInfo(c *gin.Context) {
+	operatorID, ok := operatorFrom(c)
+	if !ok {
+		return
+	}
+	info, err := h.svc.CreatorInfo(c.Request.Context(), operatorID, c.Param("account_id"))
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	h.writeSuccess(c, http.StatusOK, info)
+}

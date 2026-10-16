@@ -29,7 +29,8 @@ const (
 	statsColumns = `id, video_id, view_count, like_count, comment_count, share_count, fetched_at`
 
 	creatorColumns = `id, account_id, privacy_level_options, comment_disabled, duet_disabled, ` +
-		`stitch_disabled, max_video_post_duration_sec, fetched_at`
+		`stitch_disabled, max_video_post_duration_sec, fetched_at, creator_username, ` +
+		`creator_nickname, creator_avatar_url`
 )
 
 // Repository reads and appends insight snapshot rows.
@@ -73,7 +74,8 @@ func scanCreator(row pgx.Row) (CreatorSnapshot, error) {
 		duration int
 	)
 	if err := row.Scan(&id, &account, &options, &snap.CommentDisabled, &snap.DuetDisabled,
-		&snap.StitchDisabled, &duration, &fetched); err != nil {
+		&snap.StitchDisabled, &duration, &fetched,
+		&snap.CreatorUsername, &snap.CreatorNickname, &snap.CreatorAvatarURL); err != nil {
 		return CreatorSnapshot{}, err
 	}
 	snap.ID = id.String()
@@ -136,8 +138,8 @@ func (r *Repository) InsertCreatorSnapshot(ctx context.Context, rec CreatorSnaps
 	}
 	const q = `INSERT INTO creator_info_snapshots
 		(id, account_id, privacy_level_options, comment_disabled, duet_disabled, stitch_disabled,
-		 max_video_post_duration_sec, fetched_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 max_video_post_duration_sec, fetched_at, creator_username, creator_nickname, creator_avatar_url)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING ` + creatorColumns
 	options := rec.PrivacyOptions
 	if options == nil {
@@ -148,7 +150,8 @@ func (r *Repository) InsertCreatorSnapshot(ctx context.Context, rec CreatorSnaps
 		fetched = time.Now().UTC()
 	}
 	stored, err := scanCreator(r.pool.QueryRow(ctx, q, id, accountID, options, rec.CommentDisabled,
-		rec.DuetDisabled, rec.StitchDisabled, rec.MaxVideoPostDurationSec, fetched))
+		rec.DuetDisabled, rec.StitchDisabled, rec.MaxVideoPostDurationSec, fetched,
+		rec.CreatorUsername, rec.CreatorNickname, rec.CreatorAvatarURL))
 	if err != nil {
 		return CreatorSnapshot{}, fmt.Errorf("insight: inserting creator snapshot: %w", err)
 	}

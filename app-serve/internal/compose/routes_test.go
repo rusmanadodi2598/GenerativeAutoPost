@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/account"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/auth"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/insight"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/media"
@@ -33,6 +34,9 @@ func realRouteTables(session func(*gin.Context) (string, bool)) Routes {
 			auth.RegisterRoutes(r, auth.NewService(auth.ServiceConfig{},
 				nil, nil, nil, nil, nil, nil, nil,
 			), nil, auth.RouterConfig{CookieName: "genauto_session"})
+		},
+		Accounts: func(r gin.IRouter) {
+			account.RegisterRoutes(r, account.NewHandler(nil, session, nil))
 		},
 		Media: func(r gin.IRouter) { media.RegisterRoutes(r, media.NewHandler(nil, nil, session)) },
 		Publish: func(r gin.IRouter) {
@@ -88,6 +92,10 @@ func TestMountAnswersEveryConsolePath(t *testing.T) {
 		{http.MethodGet, "/api/v1/videos/7300000000000000000"},
 		{http.MethodGet, "/api/v1/videos/7300000000000000000/stats"},
 		{http.MethodPost, "/api/v1/videos/7300000000000000000/stats/refresh"},
+		{http.MethodGet, "/api/v1/accounts"},
+		{http.MethodGet, "/api/v1/accounts/22222222-2222-7222-8222-222222222222"},
+		{http.MethodDelete, "/api/v1/accounts/22222222-2222-7222-8222-222222222222"},
+		{http.MethodPost, "/api/v1/accounts/22222222-2222-7222-8222-222222222222/creator-info"},
 		{http.MethodGet, "/api/v1/accounts/22222222-2222-7222-8222-222222222222/profile"},
 	}
 	for _, tc := range paths {

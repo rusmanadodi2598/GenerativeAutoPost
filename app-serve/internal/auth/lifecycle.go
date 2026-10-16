@@ -102,7 +102,7 @@ func (s *Service) Revoke(ctx context.Context, operatorID string, accountID strin
 	if err := s.refresher.Revoke(ctx, accessToken); err != nil {
 		s.logger.WarnContext(ctx, "revoking tiktok access token", "account_id", accountID, "error", err)
 	}
-	return s.accounts.MarkRevoked(ctx, operatorID, accountID)
+	return s.accounts.Forget(ctx, operatorID, accountID)
 }
 
 // Logout deletes the operator session. A store failure is propagated so a

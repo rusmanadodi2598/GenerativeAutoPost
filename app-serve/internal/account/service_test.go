@@ -14,11 +14,9 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/apierror"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/crypto"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 )
@@ -37,106 +35,6 @@ type tokenUpdate struct {
 	accessExp  time.Time
 	refreshExp time.Time
 }
-
-// fakeStore is a hand-written Store. Records are keyed by open id so an upsert
-// for a seen open id behaves like a database unique constraint.
-type fakeStore struct {
-	mu      sync.Mutex
-	records map[string]Record
-	updates []tokenUpdate
-
-	upsertErr error
-	writeErr  error
-
-	getCalls    int
-	getOperator string
-	needsCalls  map[string]bool
-	revokeCalls []string
-}
-
-func newFakeStore() *fakeStore {
-	return &fakeStore{records: map[string]Record{}, needsCalls: map[string]bool{}}
-}
-
-func (f *fakeStore) UpsertEncrypted(_ context.Context, rec Record) (Record, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.upsertErr != nil {
-		return Record{}, f.upsertErr
-	}
-	if prev, ok := f.records[rec.OpenID]; ok {
-		rec.ID = prev.ID
-	} else {
-		rec.ID = "acct-" + rec.OpenID
-	}
-	f.records[rec.OpenID] = rec
-	return rec, nil
-}
-
-func (f *fakeStore) GetOwned(_ context.Context, operatorID string, accountID string) (Record, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.getCalls++
-	f.getOperator = operatorID
-	for _, rec := range f.records {
-		if rec.ID == accountID && rec.OperatorID == operatorID {
-			return rec, nil
-		}
-	}
-	return Record{}, errTestNotFound
-}
-
-// GetSystem loads by id with no operator filter, which is the sweep path.
-func (f *fakeStore) GetSystem(_ context.Context, accountID string) (Record, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, rec := range f.records {
-		if rec.ID == accountID {
-			return rec, nil
-		}
-	}
-	return Record{}, errTestNotFound
-}
-
-func (f *fakeStore) UpdateTokens(_ context.Context, accountID string, accessEnc, refreshEnc []byte, keyID string, accessExp, refreshExp time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	f.updates = append(f.updates, tokenUpdate{accountID, accessEnc, refreshEnc, keyID, accessExp, refreshExp})
-	return nil
-}
-
-func (f *fakeStore) SetNeedsReauth(_ context.Context, accountID string, needs bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	f.needsCalls[accountID] = needs
-	return nil
-}
-
-func (f *fakeStore) SetRevoked(_ context.Context, accountID string, at time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.writeErr != nil {
-		return f.writeErr
-	}
-	f.revokeCalls = append(f.revokeCalls, accountID)
-	stamp := at.UTC()
-	for openID, rec := range f.records {
-		if rec.ID == accountID {
-			rec.RevokedAt = &stamp
-			f.records[openID] = rec
-		}
-	}
-	return nil
-}
-
-// errTestNotFound is the store denial the vault must propagate unchanged.
-var errTestNotFound = apierror.New(apierror.CodeNotFound, 0, "Account not found.")
 
 // newTestService builds a vault over a fresh keyring and fake store.
 func newTestService(t *testing.T) (*Service, *fakeStore) {
