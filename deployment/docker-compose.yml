@@ -42,6 +42,12 @@ services:
     environment:
       DATABASE_URL: postgres://${GENAUTO_DB_USER:-genauto}:${GENAUTO_DB_PASSWORD:?set GENAUTO_DB_PASSWORD in .env}@postgres:5432/${GENAUTO_DB_NAME:-genauto}
       REDIS_URL: redis://redis:6379/0
+      # The migrations run at boot from this read-only mount, so a fresh
+      # volume needs no separate migrate step.
+      MIGRATIONS_DIR: /migrations
+      RUN_MIGRATIONS: "true"
+    volumes:
+      - ../migrations:/migrations:ro
     depends_on:
       postgres:
         condition: service_healthy

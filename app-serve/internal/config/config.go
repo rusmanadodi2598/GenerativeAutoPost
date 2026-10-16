@@ -13,9 +13,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -33,6 +31,12 @@ const (
 	DriverS3   = "s3"
 )
 
+// Defaults applied when the matching env is absent.
+const (
+	defaultChunkMaxBytes = 64 << 20
+	defaultWorkerSize    = 4
+)
+
 // Config holds every section 11 variable in typed form.
 type Config struct {
 	AppEnv             string        `validate:"required,oneof=development production"`
@@ -48,50 +52,28 @@ type Config struct {
 	TikTokScopes       string `validate:"required"`
 	TokenEncKey        []byte `validate:"required,len=32"`
 	TokenEncKeyID      string `validate:"required"`
+	OperatorID         string `validate:"required,uuid"`
 	MediaDriver        string `validate:"required,oneof=disk s3"`
 	MediaPublicBaseURL string
+	MediaRoot          string
+	MediaMaxBytes      int64 `validate:"gte=0"`
+	MediaMaxDurationMs int64 `validate:"gte=0"`
+	MediaAllowedTypes  []string
+	ChunkMaxBytes      int64 `validate:"gt=0"`
 	S3Endpoint         string
 	S3Bucket           string
 	S3AccessKey        string
 	S3SecretKey        string
 	S3Region           string
+	WorkerSize         int `validate:"gt=0"`
+	MigrationsDir      string
+	RunMigrations      bool
 	SessionCookieName  string        `validate:"required"`
 	SessionTTL         time.Duration `validate:"required,gt=0"`
 	LogLevel           string        `validate:"required"`
 }
 
 var validate = validator.New()
-
-// getenv reads one variable; only this file touches os.Getenv.
-func getenv(key string) string {
-	return strings.TrimSpace(os.Getenv(key))
-}
-
-// intOr parses an optional integer env, falling back to def.
-func intOr(key string, def int) (int, error) {
-	raw := getenv(key)
-	if raw == "" {
-		return def, nil
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("parsing %s: %w", key, err)
-	}
-	return n, nil
-}
-
-// durationOr parses an optional duration env, falling back to def.
-func durationOr(key string, def time.Duration) (time.Duration, error) {
-	raw := getenv(key)
-	if raw == "" {
-		return def, nil
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, fmt.Errorf("parsing %s: %w", key, err)
-	}
-	return d, nil
-}
 
 // Load reads the environment once and fails fast on bad values.
 func Load() (Config, error) {
@@ -123,6 +105,22 @@ func Load() (Config, error) {
 	if level == "" {
 		level = "info"
 	}
+	maxBytes, err := int64Or("MEDIA_MAX_BYTES", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	maxDuration, err := int64Or("MEDIA_MAX_DURATION_MS", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	chunkBytes, err := int64Or("CHUNK_MAX_BYTES", defaultChunkMaxBytes)
+	if err != nil {
+		return Config{}, err
+	}
+	workerSize, err := intOr("WORKER_SIZE", defaultWorkerSize)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		AppEnv:             getenv("APP_ENV"),
 		AppPort:            port,
@@ -137,13 +135,22 @@ func Load() (Config, error) {
 		TikTokScopes:       getenv("TIKTOK_SCOPES"),
 		TokenEncKey:        []byte(getenv("TOKEN_ENC_KEY")),
 		TokenEncKeyID:      getenv("TOKEN_ENC_KEY_ID"),
+		OperatorID:         getenv("OPERATOR_ID"),
 		MediaDriver:        getenv("MEDIA_DRIVER"),
 		MediaPublicBaseURL: getenv("MEDIA_PUBLIC_BASE_URL"),
+		MediaRoot:          getenv("MEDIA_ROOT"),
+		MediaMaxBytes:      maxBytes,
+		MediaMaxDurationMs: maxDuration,
+		MediaAllowedTypes:  listOr("MEDIA_ALLOWED_TYPES"),
+		ChunkMaxBytes:      chunkBytes,
 		S3Endpoint:         getenv("S3_ENDPOINT"),
 		S3Bucket:           getenv("S3_BUCKET"),
 		S3AccessKey:        getenv("S3_ACCESS_KEY"),
 		S3SecretKey:        getenv("S3_SECRET_KEY"),
 		S3Region:           getenv("S3_REGION"),
+		WorkerSize:         workerSize,
+		MigrationsDir:      getenv("MIGRATIONS_DIR"),
+		RunMigrations:      boolOr("RUN_MIGRATIONS"),
 		SessionCookieName:  name,
 		SessionTTL:         sessTTL,
 		LogLevel:           level,
@@ -159,6 +166,12 @@ func Load() (Config, error) {
 	}
 	if cfg.MediaDriver == DriverS3 && cfg.S3Bucket == "" {
 		return Config{}, errors.New("S3_BUCKET is required when MEDIA_DRIVER=s3")
+	}
+	if cfg.MediaDriver == DriverDisk && cfg.MediaRoot == "" {
+		return Config{}, errors.New("MEDIA_ROOT is required when MEDIA_DRIVER=disk")
+	}
+	if cfg.RunMigrations && cfg.MigrationsDir == "" {
+		return Config{}, errors.New("MIGRATIONS_DIR is required when RUN_MIGRATIONS is true")
 	}
 	return cfg, nil
 }

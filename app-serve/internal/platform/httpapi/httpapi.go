@@ -3,7 +3,7 @@
 // @file      internal/platform/httpapi/httpapi.go
 // @for       Gin engine with request id, slog access log, and recovery.
 // @uses      github.com/gin-gonic/gin, log/slog
-// @reason    One place owns HTTP middleware and route registration.
+// @reason    One place owns HTTP middleware on the data plane engine.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     handler
 // @stability stable
@@ -26,17 +26,20 @@ type Server struct {
 	logger *slog.Logger
 }
 
-// New builds the engine in release mode with middleware and a health route.
+// New builds the engine in release mode with middleware. The health route is
+// not registered here: the composition root mounts it with the module tables,
+// so one place owns the route layout.
 func New(logger *slog.Logger) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	s := &Server{engine: engine, logger: logger}
 	engine.Use(s.requestID(), s.accessLog(), s.recovery())
-	engine.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
 	return s
 }
+
+// Engine exposes the middleware-wired engine so the composition root can mount
+// the module route tables on it.
+func (s *Server) Engine() *gin.Engine { return s.engine }
 
 // Handler exposes the engine as an http.Handler for serving and tests.
 func (s *Server) Handler() http.Handler {

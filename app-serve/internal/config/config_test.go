@@ -36,7 +36,9 @@ func baseEnv() map[string]string {
 		"TIKTOK_SCOPES":       "user.info.basic",
 		"TOKEN_ENC_KEY":       "0123456789abcdef0123456789abcdef",
 		"TOKEN_ENC_KEY_ID":    "k1",
+		"OPERATOR_ID":         "0191e2c4-0000-7000-8000-000000000001",
 		"MEDIA_DRIVER":        "disk",
+		"MEDIA_ROOT":          "/srv/media",
 	}
 }
 

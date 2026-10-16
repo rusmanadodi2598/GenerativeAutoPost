@@ -2,7 +2,7 @@
 //
 // @file      cmd/app-serve/main.go
 // @for       Process entrypoint wiring config, pools, and the server.
-// @uses      internal/config, platform packages, net/http
+// @uses      internal/compose, internal/config, platform packages, net/http
 // @reason    Composition root with no business logic of its own.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     config
@@ -17,11 +17,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/compose"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/config"
-	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/httpapi"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/logging"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/postgres"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/redisx"
@@ -34,7 +35,8 @@ func main() {
 	}
 }
 
-// run loads config, wires dependencies, and blocks until SIGTERM.
+// run loads config, migrates when asked, wires dependencies, and blocks until
+// SIGTERM.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -52,6 +54,13 @@ func run() error {
 	}
 	defer pool.Close()
 
+	if cfg.RunMigrations {
+		if err := postgres.Up(ctx, pool, cfg.MigrationsDir); err != nil {
+			return err
+		}
+		logger.Info("app-serve migrations applied")
+	}
+
 	client, err := redisx.Open(ctx, cfg)
 	if err != nil {
 		return err
@@ -60,9 +69,31 @@ func run() error {
 		_ = client.Close()
 	}()
 
+	app, err := compose.Build(cfg, pool, client, logger)
+	if err != nil {
+		return err
+	}
+
+	work, stopWorkers := context.WithCancel(context.Background())
+	defer stopWorkers()
+	var workers sync.WaitGroup
+	workers.Add(3)
+	go supervised(&workers, logger, "webhook worker", func() {
+		defer workers.Done()
+		app.Worker.Run(work)
+	})
+	go supervised(&workers, logger, "reconcile sweep", func() {
+		defer workers.Done()
+		app.Reconciler.Run(work)
+	})
+	go supervised(&workers, logger, "outbox relay", func() {
+		defer workers.Done()
+		app.Reconciler.RunOutbox(work)
+	})
+
 	srv := &http.Server{
 		Addr:              cfg.Addr(),
-		Handler:           httpapi.New(logger).Handler(),
+		Handler:           app.Engine,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -97,5 +128,18 @@ func run() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
+	stopWorkers()
+	workers.Wait()
 	return <-serveErr
+}
+
+// supervised runs one background worker and recovers a panic into a log, since
+// an unrecovered goroutine kills the whole process per AGENTS.md 1.6.
+func supervised(workers *sync.WaitGroup, logger *slog.Logger, name string, run func()) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Error("background worker panic recovered", "worker", name, "panic", rec)
+		}
+	}()
+	run()
 }
