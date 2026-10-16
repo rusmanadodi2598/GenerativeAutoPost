@@ -27,6 +27,7 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/media"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/crypto"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/httpapi"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/ratelimit"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/publish"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/tiktokclient"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/webhook"
@@ -118,9 +119,10 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		},
 		Insight: func(r gin.IRouter) { insight.RegisterRoutes(r, insight.NewHandler(insightSvc, session)) },
 		Webhook: func(r gin.IRouter) {
+			window := ratelimit.NewWindow(client, cfg.WebhookThrottleMax, cfg.WebhookThrottleWnd, logger)
 			webhook.RegisterRoutes(r, webhook.NewHandler(dispatcher, webhook.HandlerConfig{
 				Secret: cfg.TikTokClientSecret,
-			}, logger))
+			}, logger), webhook.Throttle(webhook.NewIPWindow(window), logger))
 		},
 	})
 	return &App{Engine: engine, Reconciler: reconciler, Worker: worker, AttemptRows: attempts}, nil

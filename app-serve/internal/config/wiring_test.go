@@ -12,6 +12,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/config"
 )
@@ -75,6 +76,23 @@ func TestLoadWiringFields(t *testing.T) {
 		{
 			name:    "malformed WORKER_SIZE fails fast",
 			mutate:  func(m map[string]string) { m["WORKER_SIZE"] = "many" },
+			wantErr: true,
+		},
+		{
+			name:   "webhook throttle falls back to the documented default",
+			mutate: func(m map[string]string) { delete(m, "WEBHOOK_THROTTLE_MAX") },
+			check: func(t *testing.T, cfg config.Config) {
+				if cfg.WebhookThrottleMax != 120 {
+					t.Errorf("WebhookThrottleMax = %d, want the documented default", cfg.WebhookThrottleMax)
+				}
+				if cfg.WebhookThrottleWnd != 2*time.Minute {
+					t.Errorf("WebhookThrottleWnd = %v, want the documented default", cfg.WebhookThrottleWnd)
+				}
+			},
+		},
+		{
+			name:    "a zero throttle max fails fast",
+			mutate:  func(m map[string]string) { m["WEBHOOK_THROTTLE_MAX"] = "0" },
 			wantErr: true,
 		},
 	}

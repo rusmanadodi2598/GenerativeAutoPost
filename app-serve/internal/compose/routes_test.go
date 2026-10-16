@@ -43,7 +43,9 @@ func realRouteTables(session func(*gin.Context) (string, bool)) Routes {
 			publish.RegisterRoutes(r, publish.NewHandler(nil, nil, nil, session, publish.HandlerConfig{}))
 		},
 		Insight: func(r gin.IRouter) { insight.RegisterRoutes(r, insight.NewHandler(nil, session)) },
-		Webhook: func(r gin.IRouter) { webhook.RegisterRoutes(r, webhook.NewHandler(nil, webhook.HandlerConfig{}, nil)) },
+		Webhook: func(r gin.IRouter) {
+			webhook.RegisterRoutes(r, webhook.NewHandler(nil, webhook.HandlerConfig{}, nil), nil)
+		},
 	}
 }
 

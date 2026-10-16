@@ -35,6 +35,13 @@ const (
 const (
 	defaultChunkMaxBytes = 64 << 20
 	defaultWorkerSize    = 4
+	// defaultThrottleWindow counts webhook deliveries over two minutes so a
+	// count survives the minute edge while capping one window slot.
+	defaultThrottleWindow = 2 * time.Minute
+	// defaultThrottleMax is the per-IP delivery budget inside one window.
+	// TikTok fans out from several egress IPs, so this caps a flood rather
+	// than a single healthy sender.
+	defaultThrottleMax = 120
 )
 
 // Config holds every section 11 variable in typed form.
@@ -66,6 +73,8 @@ type Config struct {
 	S3SecretKey        string
 	S3Region           string
 	WorkerSize         int `validate:"gt=0"`
+	WebhookThrottleWnd time.Duration
+	WebhookThrottleMax int64 `validate:"gt=0"`
 	MigrationsDir      string
 	RunMigrations      bool
 	SessionCookieName  string        `validate:"required"`
@@ -121,6 +130,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	webhookThrottleWnd, err := durationOr("WEBHOOK_THROTTLE_WINDOW", defaultThrottleWindow)
+	if err != nil {
+		return Config{}, err
+	}
+	webhookThrottleMax, err := int64Or("WEBHOOK_THROTTLE_MAX", defaultThrottleMax)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		AppEnv:             getenv("APP_ENV"),
 		AppPort:            port,
@@ -149,6 +166,8 @@ func Load() (Config, error) {
 		S3SecretKey:        getenv("S3_SECRET_KEY"),
 		S3Region:           getenv("S3_REGION"),
 		WorkerSize:         workerSize,
+		WebhookThrottleWnd: webhookThrottleWnd,
+		WebhookThrottleMax: webhookThrottleMax,
 		MigrationsDir:      getenv("MIGRATIONS_DIR"),
 		RunMigrations:      boolOr("RUN_MIGRATIONS"),
 		SessionCookieName:  name,
