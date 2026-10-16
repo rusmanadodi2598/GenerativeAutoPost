@@ -158,6 +158,18 @@ func (r *Repository) ListStats(ctx context.Context, videoID string, since time.T
 	return points, truncated, nil
 }
 
+// DeleteStatsBefore prunes every point fetched before the cutoff and returns
+// how many rows left. The age bound is global even though the series window is
+// per video: retention is a property of the table, not of one chart.
+func (r *Repository) DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	const q = `DELETE FROM video_stats WHERE fetched_at < $1`
+	tag, err := r.pool.Exec(ctx, q, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("insight: pruning video stats: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // InsertCreatorSnapshot appends one cached creator record.
 func (r *Repository) InsertCreatorSnapshot(ctx context.Context, rec CreatorSnapshot) (CreatorSnapshot, error) {
 	id, err := uuid.NewV7()

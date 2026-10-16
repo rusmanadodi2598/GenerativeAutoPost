@@ -191,3 +191,38 @@ func TestCreatorSnapshotLatestUnknownAccountIsNotFound(t *testing.T) {
 	_, err := repo.LatestCreatorSnapshot(ctx, uuid.NewString())
 	wantInsightCode(t, err, apierror.CodeNotFound)
 }
+
+func TestDeleteStatsBeforeRemovesEveryVideoOlderThanCutoff(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository(testPool(t))
+	now := time.Now().UTC()
+	oldID := "video-" + uuid.NewString()
+	freshID := "video-" + uuid.NewString()
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: oldID, ViewCount: intPtr(7), FetchedAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatalf("insert old: %v", err)
+	}
+	if _, err := repo.InsertStats(ctx, StatSnapshot{VideoID: freshID, ViewCount: intPtr(8), FetchedAt: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("insert fresh: %v", err)
+	}
+	removed, err := repo.DeleteStatsBefore(ctx, now)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if removed < 1 {
+		t.Fatalf("removed = %d, want at least the old row", removed)
+	}
+	oldPoints, _, err := repo.ListStats(ctx, oldID, time.Time{}, 10)
+	if err != nil {
+		t.Fatalf("list old: %v", err)
+	}
+	if len(oldPoints) != 0 {
+		t.Fatalf("old points = %d, want 0", len(oldPoints))
+	}
+	freshPoints, _, err := repo.ListStats(ctx, freshID, time.Time{}, 10)
+	if err != nil {
+		t.Fatalf("list fresh: %v", err)
+	}
+	if len(freshPoints) != 1 {
+		t.Fatalf("fresh points = %d, want 1", len(freshPoints))
+	}
+}

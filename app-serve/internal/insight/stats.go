@@ -36,6 +36,7 @@ type SnapshotStore interface {
 	InsertStats(ctx context.Context, snap StatSnapshot) (StatSnapshot, error)
 	LatestStats(ctx context.Context, videoID string) (StatSnapshot, error)
 	ListStats(ctx context.Context, videoID string, since time.Time, limit int) ([]StatSnapshot, bool, error)
+	DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	InsertCreatorSnapshot(ctx context.Context, rec CreatorSnapshot) (CreatorSnapshot, error)
 	LatestCreatorSnapshot(ctx context.Context, accountID string) (CreatorSnapshot, error)
 }

@@ -157,6 +157,21 @@ func (f *fakeStore) LatestCreatorSnapshot(context.Context, string) (CreatorSnaps
 	return f.creators[len(f.creators)-1], nil
 }
 
+// DeleteStatsBefore drops every stored point older than the cutoff.
+func (f *fakeStore) DeleteStatsBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	kept := f.stats[:0]
+	var removed int64
+	for _, snap := range f.stats {
+		if snap.FetchedAt.Before(cutoff) {
+			removed++
+			continue
+		}
+		kept = append(kept, snap)
+	}
+	f.stats = kept
+	return removed, nil
+}
+
 // svcHarness is the service level fixture for the business rule tests.
 type svcHarness struct {
 	svc    *Service
