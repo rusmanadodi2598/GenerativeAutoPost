@@ -74,7 +74,7 @@ not need an upstream call to be current.
    silent skip. Confirmed by the operator 2026-10-16.
 9. **The sweep walks the newest catalog and goes through the shared limiter.**
    `video/list` is paged until `has_more` is false, newest first, with no page
-   cap. Every list call passes the existing Redis token bucket through the
+   cap. Every list call passes the existing Redis fixed-window limiter through the
    `FamilyListVideos` family, so a catalog larger than the per-minute budget
    stops for this tick and resumes on the next one instead of overrunning
    TikTok. Old videos past that point simply keep the points they already

@@ -1,6 +1,6 @@
 # 003: API Contract v1
 
-- **Status:** Draft for review
+- **Status:** Accepted
 - **Date:** 2026-10-12
 - **Depends on:** `001-BACKEND-ARCHITECTURE.md`, `002-TIKTOK-INTEGRATION.md`
 - **Base URL:** `https://app-tiktok.kentangtech.com/api/v1`

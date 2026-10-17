@@ -77,7 +77,7 @@ re-login prompt for the operator, not a silent skip. Confirmed by the operator
 ## Decision 9: the sweep walks the newest catalog and goes through the shared limiter
 
 `video/list` is paged until `has_more` is false, newest first, with no page
-cap. Every list call passes the existing Redis token bucket through the
+cap. Every list call passes the existing Redis fixed-window limiter through the
 `FamilyListVideos` family, so a catalog larger than the per-minute budget stops
 for this tick and starts again from the newest page on the next tick instead of
 overrunning TikTok. An old video keeps its points only until retention prunes

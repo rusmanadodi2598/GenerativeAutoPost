@@ -1,6 +1,6 @@
 # 002: TikTok Integration
 
-- **Status:** Draft for review
+- **Status:** Accepted
 - **Date:** 2026-10-12
 - **Depends on:** `001-SCOPE-V1.md` (decision), `001-BACKEND-ARCHITECTURE.md` (architecture)
 - **Source:** developers.tiktok.com docs, pages reviewed on 2026-10-12. TikTok changes docs without notice, so re-verify before implementation.

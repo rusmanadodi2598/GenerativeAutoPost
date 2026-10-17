@@ -1,6 +1,6 @@
 # 001: Backend Architecture (app-serve)
 
-- **Status:** Draft for review
+- **Status:** Accepted
 - **Date:** 2026-10-12
 - **Owner:** Dodi Rusmana
 - **Depends on:** `docs/DECISIONS/001-SCOPE-V1.md`
