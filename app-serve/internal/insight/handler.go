@@ -85,7 +85,7 @@ func (h *Handler) Show(c *gin.Context) {
 }
 
 // Stats answers the series for the requested window, defaulting to 7 days.
-// The series comes from stored points rather than a fresh upstream read.
+// Stored points serve it, with one fetch for a video that has none yet.
 func (h *Handler) Stats(c *gin.Context) {
 	operatorID, ok := operatorFrom(c)
 	if !ok {

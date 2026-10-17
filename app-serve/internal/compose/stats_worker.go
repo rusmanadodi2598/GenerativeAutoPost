@@ -26,7 +26,7 @@ type accountIDs struct {
 	svc accountLister
 }
 
-// List returns the connected account ids in creation order.
+// List returns the non-revoked connected account ids in creation order.
 func (a accountIDs) List(ctx context.Context, operatorID string) ([]string, error) {
 	views, err := a.svc.List(ctx, operatorID)
 	if err != nil {
