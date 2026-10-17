@@ -10,7 +10,9 @@ the deployment files. No admin UI ships in this version.
 - `internal/config`: typed env, validated at boot, fail fast on bad values.
 - `internal/apierror`: RFC 9457 problem responses and the error code catalog.
 - `internal/platform/crypto`: AES-256-GCM token keyring with rotation, HMAC checks.
-- `internal/auth`: TikTok OAuth exchange and refresh, server-side session cookie.
+- `internal/auth`: Google OIDC operator sign in, TikTok connect, server-side session cookie.
+- `internal/operator`: users row upsert for the signed in operator.
+- `internal/platform/googleoidc`: Google OIDC authorize, code exchange, and id token verification.
 - `internal/account`: account aggregate, pgx repository, token vault.
 - `internal/tiktokclient`: outbound client, rate limiter, and error map.
 - `internal/media`: disk and S3 stores, chunk planner, upload service.
@@ -38,6 +40,7 @@ prunes rows older than the retention cutoff after each sweep.
   inside the window.
 - The TikTok upload URL never reaches a client; chunks are proxied server-side.
 - Webhook intake is idempotent per event id, and a duplicate apply is a no-op.
+- Sign in is Google only, and only the email in `OPERATOR_EMAIL` is allowed. TikTok OAuth is a connect step for an operator who already has a session.
 
 ## Not in this version
 

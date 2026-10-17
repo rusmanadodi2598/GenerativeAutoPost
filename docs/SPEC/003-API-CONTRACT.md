@@ -142,8 +142,10 @@ All external input decodes into a `schema` struct and is validated with `go-play
 
 | Method | Path | Body / params | Success | Notes |
 |---|---|---|---|---|
-| `GET` | `/auth/tiktok/authorize` | `scope` (optional subset) | `302` to TikTok | Sets the `state` in Redis. Browser-facing |
-| `GET` | `/auth/tiktok/callback` | `code`, `state` (from TikTok) | `302` to app-ui | Validates `state`, exchanges the code, upserts the account |
+| `GET` | `/auth/google/authorize` | none | `302` to Google | Mints the OIDC state. No session |
+| `GET` | `/auth/google/callback` | `code`, `state` (from Google) | `302` to the console | Sets the session cookie. A refused email redirects to `status=error` |
+| `GET` | `/auth/tiktok/authorize` | `scope` (optional subset) | `302` to TikTok | Session required. Sets the `state` in Redis. Browser-facing |
+| `GET` | `/auth/tiktok/callback` | `code`, `state` (from TikTok) | `302` to app-ui | Session required. Validates `state`, exchanges the code, upserts the account |
 | `POST` | `/auth/tiktok/refresh` | `{"account_id": "..."}` | `200` account | Manual refresh. Scheduled refresh is automatic |
 | `POST` | `/auth/tiktok/revoke` | `{"account_id": "..."}` | `204` | Revokes at TikTok, clears local tokens |
 | `POST` | `/auth/logout` | none | `204` | Clears the session cookie and the Redis session |
@@ -272,6 +274,7 @@ This route is not under `/api/v1` by design: it is TikTok's contract, not ours, 
 - State-changing requests require a CSRF token, sent as the `X-CSRF-Token` header and compared with the session value.
 - `SameSite=Lax` plus the CSRF check is what allows the OAuth callback redirect to work while still blocking cross-site form posts.
 - The API is same-origin behind one Nginx host, so there is no CORS allowance by default. Any added origin goes through an explicit allowlist.
+- `GET /auth/google/callback` is the login entry, gated by the `OPERATOR_EMAIL` allowlist and the id_token verification. The TikTok callback is a connect step, not a login.
 
 ## 9. Rate Limits
 

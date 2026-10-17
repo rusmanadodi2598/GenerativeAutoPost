@@ -59,10 +59,12 @@ handler -> router`. A package may only import the layer to its left.
 | `internal/platform/ratelimit` | repository | Fixed-window counter over Redis |
 | `internal/platform/idempotency` | repository | Claim, replay, complete, release over Redis |
 | `internal/platform/r2` | repository | AWS SigV4 signing and Cloudflare R2 object requests |
+| `internal/platform/googleoidc` | repository | Google OIDC client: authorize URL, code exchange, JWKS verify |
 | `internal/platform/httpapi` | router | Engine, request id, access log, recovery |
 | `internal/platform/logging` | util | slog setup |
 | `internal/tiktokclient` | repository | Outbound TikTok calls, per-account limiter, error map |
-| `internal/auth` | service | OAuth exchange and refresh, Redis sessions, OAuth state |
+| `internal/auth` | service | Google sign in and TikTok connect, Redis sessions, OAuth state |
+| `internal/operator` | repository | Users row upsert for the signed in operator |
 | `internal/account` | service | Account aggregate, token vault, ownership checks |
 | `internal/publish` | service | Init for video, photo, draft, chunk proxy, status reconcile |
 | `internal/webhook` | worker | Signature verify, idempotent intake, dispatcher, worker pool, sweep |
@@ -89,8 +91,10 @@ All console routes are session guarded. State-changing routes also require
 | Method | Path | Module | Notes |
 |---|---|---|---|
 | GET | `/healthz` | compose | Root, no version prefix |
-| GET | `/auth/tiktok/authorize` | auth | Browser redirect, no session |
-| GET | `/auth/tiktok/callback` | auth | Browser redirect, no session |
+| GET | `/auth/google/authorize` | auth | Browser redirect, no session |
+| GET | `/auth/google/callback` | auth | Sets the session, a refused email redirects to `status=error` |
+| GET | `/auth/tiktok/authorize` | auth | Browser redirect, session guarded |
+| GET | `/auth/tiktok/callback` | auth | Browser redirect, session guarded |
 | POST | `/auth/tiktok/refresh` | auth | Session plus CSRF |
 | POST | `/auth/tiktok/revoke` | auth | Session plus CSRF |
 | POST | `/auth/logout` | auth | Session plus CSRF |
@@ -124,7 +128,7 @@ pairs live in `migrations/`.
 
 | Table | Migration | Notes |
 |---|---|---|
-| `users` | 000001 | Operator accounts. No login route exists yet (see section 9) |
+| `users` | 000001, 000009 | Operator accounts, upserted on first Google sign in |
 | `sessions` | 000001 | Declared for audit; sessions actually live in Redis |
 | `tiktok_accounts` | 000001, 000004 | Token columns are ciphertext plus `key_id`; `needs_reauth` |
 | `publish_attempts` | 000001, 000006, 000008 | `reconcile_failures`, nullable `media_id` |
@@ -152,6 +156,7 @@ Required indexes (per `AGENTS.md` 1.7): `tiktok_accounts(open_id)`,
 
 | Target | Used by | Auth | Timeout |
 |---|---|---|---|
+| Google OIDC (authorize, token, JWKS) | auth | `GOOGLE_CLIENT_ID` plus `GOOGLE_CLIENT_SECRET`, id token verified against the JWKS | per call |
 | TikTok OAuth (`/v2/oauth/`) | auth | client key plus secret | per call |
 | TikTok creator info, init, status | publish | account access token, decrypted from the vault | per call |
 | TikTok video list, query, user info | insight | account access token | per call |
@@ -256,13 +261,10 @@ loses its oldest points.
 Structure that this map records as absent on purpose, so a reader does not
 assume it exists.
 
-1. **No operator login.** `auth` handles TikTok OAuth only. There is no
-   password or SSO route and no seed for the `users` row; `OPERATOR_ID` comes
-   from env. Tracked as `docs/SPEC/001` section 13.3 and `003` section 12.2.
-2. **No event stream consumer.** The outbox relay appends to
+1. **No event stream consumer.** The outbox relay appends to
    `genauto:stream:events`; nothing reads the stream yet. The publish state
    machine does not depend on a consumer.
-3. **No `sessions` mirror.** The table exists for audit; the code writes
+2. **No `sessions` mirror.** The table exists for audit; the code writes
    sessions to Redis only.
-4. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
+3. **app-ui not started.** Blocked on owner direction in `DESIGN.md`
    (antislop R-37).

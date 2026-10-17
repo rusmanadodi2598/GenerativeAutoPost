@@ -47,9 +47,11 @@ app-serve/
       idempotency/               claim, replay, complete, release over Redis
       ratelimit/                 fixed-window counter over Redis
       r2/                        SigV4 signing, Cloudflare R2 object requests
+      googleoidc/                Google OIDC authorize, code exchange, id token verify
     apierror/                    RFC 9457 problem type, catalog, mapper
     tiktokclient/                outbound TikTok adapter (see 002)
-    auth/                        OAuth state, callback, token lifecycle
+    auth/                        Google sign in, TikTok connect, sessions, OAuth state
+    operator/                    users row upsert for the signed in operator
     account/                     TikTokAccount aggregate and token vault
     publish/                     creator info, direct post, draft, status
     webhook/                     signature verify, event store, dispatcher
@@ -65,7 +67,7 @@ Every hand-written Go file stays under 250 lines and carries the header block de
 ## 4. Module Responsibilities
 
 ### 4.1 auth
-Builds the authorization redirect (`client_key`, comma-joined `scope`, `redirect_uri`, `state`, `response_type=code`, optional `disable_auto_auth`), holds `state` in Redis as a single-use key with a short TTL, validates `state` on callback, exchanges `code` for tokens, and refreshes or revokes tokens. `state` and PKCE `code_verifier` are generated with `crypto/rand`.
+Two flows share one package. Google OIDC is the only sign in: `GET /auth/google/authorize` mints a nonce, stores it as a single-use state in Redis, and redirects to Google; `GET /auth/google/callback` spends the state, exchanges the code, verifies the id token against Google's JWKS (RS256, `kid`, issuer, audience, expiry, nonce, `email_verified`), and mints an operator session only when the verified email matches `OPERATOR_EMAIL`. The first sign in upserts the `users` row. TikTok is a connect flow for an operator who already has a session: it builds the authorization redirect (`client_key`, comma-joined `scope`, `redirect_uri`, `state`, `response_type=code`, optional `disable_auto_auth`), binds `state` in Redis to the issuing operator as a single-use key with a short TTL, validates `state` on callback, exchanges `code` for tokens, and refreshes or revokes tokens. `state` and PKCE `code_verifier` are generated with `crypto/rand`. Both browser routes redirect a missing session to the result page instead of writing JSON, and the Google routes sit behind an IP throttle.
 
 ### 4.2 account
 Owns the `TikTokAccount` aggregate: `open_id`, `union_id`, display name, avatar, granted scopes, token material, expiry, and revoke state. Token material is encrypted at rest by `platform/crypto`. The aggregate exposes behavior (`RotateTokens`, `Revoke`, `HasScope`) instead of exported mutable fields.
@@ -88,7 +90,7 @@ All primary keys are UUIDv7 unless noted. All timestamps are `timestamptz`.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` | `id`, `email`, `password_hash`, `created_at` | Operator row; no login route yet, `OPERATOR_ID` comes from env |
+| `users` | `id`, `email`, `created_at` | Operator row; the Google login upserts it on first sign in, `OPERATOR_ID` comes from env |
 | `sessions` | `id`, `user_id`, `expires_at`, `csrf_token` | Declared for audit; sessions actually live in Redis |
 | `tiktok_accounts` | `id`, `user_id`, `open_id` UNIQUE, `union_id`, `display_name`, `avatar_url`, `scopes TEXT[]`, `access_token_enc`, `access_token_expires_at`, `refresh_token_enc`, `refresh_expires_at`, `revoked_at`, `needs_reauth` | Token columns are ciphertext plus `key_id` |
 | `publish_attempts` | `id`, `account_id`, `publish_id` UNIQUE, `post_mode`, `media_type`, `source`, `status`, `privacy_level`, `title`, `description`, `fail_reason`, `post_id`, `uploaded_bytes`, `media_id`, `reconcile_failures`, `created_at`, `completed_at` | One row per initialized publish; `media_id` is nullable |
@@ -193,8 +195,13 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | App credentials |
 | `TIKTOK_REDIRECT_URI` | Must match the registered URI exactly |
 | `TIKTOK_SCOPES` | Comma-joined scope list |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth client for operator sign in, both required at boot |
+| `GOOGLE_REDIRECT_URI` | Must match the registered Google redirect URI exactly |
+| `OPERATOR_EMAIL` | The one Google account allowed to sign in |
+| `APP_UI_BASE_URL` | Console origin for browser redirects, empty means same-origin |
+| `TRUSTED_PROXIES` | Comma-joined proxy IPs/CIDRs allowed to set `X-Forwarded-For`, empty trusts no proxy |
 | `TOKEN_ENC_KEY`, `TOKEN_ENC_KEY_ID` | AES-256-GCM master key (32 bytes) and rotation id |
-| `OPERATOR_ID` | Operator UUID the OAuth callback attaches accounts to |
+| `OPERATOR_ID` | Operator UUID the login and TikTok connect attach to |
 | `MEDIA_DRIVER` | `disk` or `s3` |
 | `MEDIA_ROOT` | Local object root, required when `MEDIA_DRIVER=disk` |
 | `MEDIA_PUBLIC_BASE_URL` | Verified domain used for `PULL_FROM_URL` |

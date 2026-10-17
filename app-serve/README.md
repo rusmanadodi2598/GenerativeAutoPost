@@ -18,9 +18,11 @@ the service imports `net/http` server helpers; business logic stays in
 - `cmd/app-serve/main.go`: composition root, wiring only
 - `internal/config`: typed env, validated at boot
 - `internal/apierror`: RFC 9457 writer and code catalog
+- `internal/operator`: users row upsert for the signed in operator
 - `internal/platform/crypto`: AES-256-GCM keyring and HMAC checks
 - `internal/platform/postgres`, `internal/platform/redisx`: pool and client
 - `internal/platform/r2`: AWS SigV4 signer and the Cloudflare R2 object client
+- `internal/platform/googleoidc`: Google OIDC authorize, code exchange, and id token verification
 - `internal/platform/logging`: slog JSON in production, text in development
 - `internal/platform/httpapi`: Gin engine and `GET /healthz`
 
