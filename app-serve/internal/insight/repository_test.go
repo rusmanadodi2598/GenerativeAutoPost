@@ -43,8 +43,8 @@ func seedAccount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
 	t.Helper()
 	userID := uuid.NewString()
 	accountID := uuid.NewString()
-	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
-		userID, "insight-9b-"+userID+"@example.com", "hash"); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES ($1, $2)`,
+		userID, "insight-9b-"+userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	const q = `INSERT INTO tiktok_accounts

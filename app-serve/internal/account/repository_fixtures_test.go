@@ -71,7 +71,7 @@ func seedUser(t *testing.T, pool *pgxpool.Pool) string {
 		t.Fatalf("generate user id: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(),
-		`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, 'hash')`,
+		`INSERT INTO users (id, email) VALUES ($1, $2)`,
 		id, id+"@example.test"); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}

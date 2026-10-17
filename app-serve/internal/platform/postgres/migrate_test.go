@@ -141,11 +141,13 @@ func TestDownRollsBackOneStep(t *testing.T) {
 		t.Fatalf("Down: %v", err)
 	}
 
-	// One Down step reverses the newest pair, the attempt media link on
-	// publish_attempts; the profile columns and the reconcile counter belong to
-	// older pairs and must survive.
-	if cols := columnNames(t, pool, "publish_attempts"); cols["media_id"] {
-		t.Error("media_id survived a one-step Down")
+	// One Down step reverses the newest pair, the password column drop on
+	// users; the attempt media link and the older pairs must survive.
+	if cols := columnNames(t, pool, "users"); !cols["password_hash"] {
+		t.Error("password_hash was not restored by a one-step Down")
+	}
+	if cols := columnNames(t, pool, "publish_attempts"); !cols["media_id"] {
+		t.Error("media_id was rolled back by a one-step Down")
 	}
 	if cols := columnNames(t, pool, "creator_info_snapshots"); !cols["creator_username"] {
 		t.Error("creator_username was rolled back by a one-step Down")

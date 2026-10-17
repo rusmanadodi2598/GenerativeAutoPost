@@ -31,7 +31,7 @@ func TestUpCreatesSectionFiveColumns(t *testing.T) {
 
 	columns := columnSet(t, pool)
 	want := map[string][]string{
-		"users":                  {"id", "email", "password_hash", "created_at"},
+		"users":                  {"id", "email", "created_at"},
 		"sessions":               {"id", "user_id", "expires_at", "csrf_token"},
 		"tiktok_accounts":        {"id", "user_id", "open_id", "union_id", "display_name", "avatar_url", "scopes", "access_token_enc", "access_token_expires_at", "refresh_token_enc", "refresh_expires_at", "token_key_id", "revoked_at"},
 		"publish_attempts":       {"id", "account_id", "publish_id", "post_mode", "media_type", "source", "status", "privacy_level", "title", "description", "fail_reason", "post_id", "uploaded_bytes", "created_at", "completed_at"},
