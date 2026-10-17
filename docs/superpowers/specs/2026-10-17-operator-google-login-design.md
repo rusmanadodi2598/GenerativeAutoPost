@@ -72,18 +72,36 @@ display only and gate nothing, so an empty list is safe.
 ### Flow
 
 1. app-ui sends the browser to `GET /auth/google/authorize`.
-2. app-serve issues a single-use `state` in Redis and redirects to Google's
-   authorize endpoint with `scope=openid email`.
+2. app-serve issues a single-use `state` and a `nonce` in Redis and redirects
+   to Google's authorize endpoint with `scope=openid email` and that nonce.
 3. Google redirects back to `GET /auth/google/callback?code=...&state=...`.
-4. app-serve consumes the `state` (replay proof), exchanges the `code` at
-   Google's token endpoint, and calls Google's userinfo endpoint with the
-   access token.
-5. It requires `email_verified` true and the email on the allowlist. Any other
-   email mints no session; the callback redirects to the error result. This
-   route always redirects and never writes a JSON body, so the browser never
-   sees an upstream detail.
-6. It ensures the operator `users` row exists, mints the existing Redis session
+4. app-serve consumes the `state` (replay proof) and exchanges the `code` at
+   Google's token endpoint. The response carries an `id_token`.
+5. It verifies the `id_token` against Google's published keys (see below). A
+   token that fails any check mints no session; the callback redirects to the
+   error result. This route always redirects and never writes a JSON body, so
+   the browser never sees an upstream detail.
+6. It requires `email_verified` true and the email on the allowlist, then
+   ensures the operator `users` row exists, mints the existing Redis session
    and CSRF token, sets the session cookie, and redirects to the dashboard.
+
+### ID token verification
+
+The callback trusts nothing in the token response until the `id_token` passes
+every check, all against Google's JWKS:
+
+- Signature is RS256, verified with the key named by the token's `kid`. The
+  key set is cached and refetched when a `kid` is unknown, so key rotation does
+  not lock the operator out.
+- `iss` is `https://accounts.google.com` or `accounts.google.com`.
+- `aud` equals `GOOGLE_CLIENT_ID`.
+- `exp` is in the future and `iat` is not in the future.
+- `nonce` equals the value stored with the `state`.
+- `email_verified` is true, and `email` is the claim the allowlist reads.
+
+Verification uses `crypto/rsa`, `crypto/sha256`, and `encoding/json` over the
+JWKS, so no JWT library is added. The JWKS URL is a constant with an injectable
+override for tests.
 
 ### Routes
 
@@ -142,17 +160,17 @@ The login flow inserts the operator row on first success (`id = OPERATOR_ID`,
 ### Package shape
 
 - New `internal/googleoidc`: the outbound client (authorize URL, token
-  exchange, userinfo) with injectable endpoints and `*http.Client` for tests,
-  mirroring `tiktokclient`.
-- `internal/auth` gains a Google service and handler, declares the userinfo
-  port, and loses session minting from the TikTok callback.
+  exchange, id_token verification) with injectable endpoints and `*http.Client`
+  for tests, mirroring `tiktokclient`.
+- `internal/auth` gains a Google service and handler, declares the id_token
+  verifier port, and loses session minting from the TikTok callback.
 - `internal/compose` wires the new client and routes.
 
 ### Security notes
 
-- The allowlist is checked before any session is minted. The comparison trims
-  surrounding space and lowercases both sides, so case never locks the operator
-  out.
+- The `id_token` is verified before its claims are read, and the allowlist is
+  checked before any session is minted. The comparison trims surrounding space
+  and lowercases both sides, so case never locks the operator out.
 - `state` is single use and short lived, reused from the TikTok flow.
 - The cookie keeps `HttpOnly`, `Secure`, `SameSite=Lax`; POST routes keep CSRF.
 - `/auth/google/authorize` and `/auth/google/callback` are rate limited per IP
@@ -166,10 +184,10 @@ The login flow inserts the operator row on first success (`id = OPERATOR_ID`,
 
 Marked as mine, so they can be checked.
 
-- The email comes from the userinfo endpoint, not a locally verified
-  `id_token`. That avoids JWKS and JWT verification and matches the existing
-  server-to-server TLS trust in `tiktokclient`. A builder that prefers strict
-  OIDC can verify the `id_token` instead.
+- The `id_token` is verified locally, not read from the userinfo endpoint.
+  Signature, issuer, audience, expiry, and nonce are all checked, so a forged
+  or replayed token cannot mint a session. This is the zero-trust rule the
+  owner chose.
 - `APP_UI_BASE_URL` is added and the `MEDIA_PUBLIC_BASE_URL` reuse for console
   redirects is dropped. Success lands on the console root; failure lands on
   `/auth/result?status=error`.
@@ -182,7 +200,8 @@ Marked as mine, so they can be checked.
 ## Left to the builder
 
 - The `users` upsert conflict target.
-- Whether to reuse `StateStore` as-is with a provider tag as its payload, or
-  generalize it.
+- Whether to reuse `StateStore` as-is with the state and nonce as its payload,
+  or generalize it.
+- The JWKS cache TTL and rotation handling.
 - The rate limit window and budget, chosen consistently with the webhook throttle.
 - Google test doubles through `httptest`.
