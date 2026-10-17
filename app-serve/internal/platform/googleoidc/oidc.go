@@ -96,6 +96,9 @@ type idTokenClaims struct {
 // VerifyIDToken checks the signature and every claim Google guarantees, and
 // returns the identity only after every check passes.
 func (c *Client) VerifyIDToken(ctx context.Context, raw string, nonce string) (Claims, error) {
+	if nonce == "" {
+		return Claims{}, fmt.Errorf("googleoidc: nonce is required")
+	}
 	segments := strings.Split(raw, ".")
 	if len(segments) != 3 {
 		return Claims{}, fmt.Errorf("googleoidc: id token is not a jws")

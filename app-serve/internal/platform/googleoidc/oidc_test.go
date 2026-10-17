@@ -184,6 +184,14 @@ func TestVerifyIDToken_RejectsNonceMismatch(t *testing.T) {
 	mustReject(t, client, token, "a-different-nonce")
 }
 
+func TestVerifyIDToken_RejectsEmptyNonceArgument(t *testing.T) {
+	key := newTestKey(t, "key-1")
+	client := newTestClient(t, key)
+	token := signToken(t, key, validClaims("client-1", "nonce-1"))
+
+	mustReject(t, client, token, "")
+}
+
 func TestVerifyIDToken_RejectsUnverifiedEmail(t *testing.T) {
 	key := newTestKey(t, "key-1")
 	client := newTestClient(t, key)

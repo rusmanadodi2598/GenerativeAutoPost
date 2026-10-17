@@ -40,29 +40,51 @@ type jwkKey struct {
 	E   string `json:"e"`
 }
 
-// keyCache stores the decoded keys and the time they were fetched.
+// keyCache stores the decoded keys and the time they were fetched. fetchMu
+// serializes network fetches so a slow JWKS endpoint never blocks a cached
+// verification.
 type keyCache struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	keys      map[string]*rsa.PublicKey
 	fetchedAt time.Time
+	fetchMu   sync.Mutex
 }
 
 // publicKey returns the key named by kid. A missing kid, or an expired cache,
 // triggers one refetch so Google key rotation does not lock the operator out.
 func (c *Client) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	c.cache.mu.Lock()
-	defer c.cache.mu.Unlock()
-
-	if key, ok := c.cache.keys[kid]; ok && time.Since(c.cache.fetchedAt) < jwksTTL {
+	if key, ok := c.cachedKey(kid); ok {
 		return key, nil
 	}
-	if err := c.fetchKeys(ctx); err != nil {
+	if err := c.refreshKeys(ctx, kid); err != nil {
 		return nil, err
 	}
-	if key, ok := c.cache.keys[kid]; ok {
+	if key, ok := c.cachedKey(kid); ok {
 		return key, nil
 	}
 	return nil, fmt.Errorf("googleoidc: signing key %q not found", kid)
+}
+
+// cachedKey reads a fresh key without going near the fetch lock.
+func (c *Client) cachedKey(kid string) (*rsa.PublicKey, bool) {
+	c.cache.mu.RLock()
+	defer c.cache.mu.RUnlock()
+	key, ok := c.cache.keys[kid]
+	if !ok || time.Since(c.cache.fetchedAt) >= jwksTTL {
+		return nil, false
+	}
+	return key, true
+}
+
+// refreshKeys fetches the key set one network call at a time. A caller that
+// waited on an in-flight fetch rechecks the cache before fetching again.
+func (c *Client) refreshKeys(ctx context.Context, kid string) error {
+	c.cache.fetchMu.Lock()
+	defer c.cache.fetchMu.Unlock()
+	if _, ok := c.cachedKey(kid); ok {
+		return nil
+	}
+	return c.fetchKeys(ctx)
 }
 
 func (c *Client) fetchKeys(ctx context.Context) error {
@@ -99,8 +121,10 @@ func (c *Client) fetchKeys(ctx context.Context) error {
 		}
 		keys[entry.Kid] = key
 	}
+	c.cache.mu.Lock()
 	c.cache.keys = keys
 	c.cache.fetchedAt = time.Now()
+	c.cache.mu.Unlock()
 	return nil
 }
 
