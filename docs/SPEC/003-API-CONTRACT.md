@@ -302,6 +302,6 @@ Each route gets a table-driven test for the happy path, a validation failure, an
 ## 12. Open Items
 
 1. Upload size caps per content type ship as config: `MEDIA_MAX_BYTES`, `MEDIA_MAX_DURATION_MS`, `MEDIA_ALLOWED_TYPES`, and `CHUNK_MAX_BYTES`.
-2. Operator login is TikTok OAuth only. There is no password or SSO route; `OPERATOR_ID` comes from env and the `users` row is not seeded. See `SYSTEM_MAP.md` section 9.
+2. ~~Operator login is TikTok OAuth only.~~ Google OIDC gated by the `OPERATOR_EMAIL` allowlist: the `users` row is upserted at sign in by `internal/operator`. There is still no password or SSO route, and `OPERATOR_ID` stays required config.
 3. ~~The `range` options for `/videos/{id}/stats`.~~ Closed by `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md`, then amended by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`: `7d`, default `7d`.
 4. Downsampling for `video_stats` rows. Retention is closed by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`; a window longer than 7 days still needs a storage decision.

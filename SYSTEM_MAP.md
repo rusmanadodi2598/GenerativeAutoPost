@@ -225,11 +225,16 @@ supervised by `main.supervised`.
 
 ## 8. Key data flows
 
-**Operator OAuth.** authorize -> TikTok -> callback with `state` -> state
-verified single use in Redis -> code exchanged -> token encrypted with the
-keyring -> account upserted -> session id set in an `HttpOnly`, `Secure`,
-`SameSite=Lax` cookie. Ownership is checked before any account-scoped read or
-write; a foreign id answers `404`.
+**Operator sign in.** authorize -> Google -> single-use `state` plus nonce ->
+callback spends `state` -> code exchanged -> id token verified against
+Google's JWKS -> allowlist check on the `email_verified` email against
+`OPERATOR_EMAIL` -> `users` row upserted -> session id set in an `HttpOnly`,
+`Secure`, `SameSite=Lax` cookie.
+
+**TikTok account connect.** requires the session -> state bound to the
+issuing operator -> code exchanged -> token encrypted with the keyring ->
+account upserted -> no cookie written. Ownership is checked before any
+account-scoped read or write; a foreign id answers `404`.
 
 **Direct post, video or photo.** Client sends the init body with an optional
 `Idempotency-Key`. Ownership and privacy options are resolved, the init is
