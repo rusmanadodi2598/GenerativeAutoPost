@@ -27,18 +27,22 @@ func withEnv(t *testing.T, vars map[string]string) {
 // baseEnv holds the smallest passing set; cases mutate one key each.
 func baseEnv() map[string]string {
 	return map[string]string{
-		"APP_ENV":             "development",
-		"APP_PORT":            "8080",
-		"DATABASE_URL":        "postgres://localhost:5432/genauto?sslmode=disable",
-		"REDIS_URL":           "redis://localhost:6379/0",
-		"TIKTOK_CLIENT_KEY":   "key123",
-		"TIKTOK_REDIRECT_URI": "https://app.example.com/cb",
-		"TIKTOK_SCOPES":       "user.info.basic",
-		"TOKEN_ENC_KEY":       "0123456789abcdef0123456789abcdef",
-		"TOKEN_ENC_KEY_ID":    "k1",
-		"OPERATOR_ID":         "0191e2c4-0000-7000-8000-000000000001",
-		"MEDIA_DRIVER":        "disk",
-		"MEDIA_ROOT":          "/srv/media",
+		"APP_ENV":              "development",
+		"APP_PORT":             "8080",
+		"DATABASE_URL":         "postgres://localhost:5432/genauto?sslmode=disable",
+		"REDIS_URL":            "redis://localhost:6379/0",
+		"TIKTOK_CLIENT_KEY":    "key123",
+		"TIKTOK_REDIRECT_URI":  "https://app.example.com/cb",
+		"TIKTOK_SCOPES":        "user.info.basic",
+		"GOOGLE_CLIENT_ID":     "client-id.apps.googleusercontent.com",
+		"GOOGLE_CLIENT_SECRET": "client-secret",
+		"GOOGLE_REDIRECT_URI":  "https://app.example.com/auth/google/callback",
+		"OPERATOR_EMAIL":       "operator@example.com",
+		"TOKEN_ENC_KEY":        "0123456789abcdef0123456789abcdef",
+		"TOKEN_ENC_KEY_ID":     "k1",
+		"OPERATOR_ID":          "0191e2c4-0000-7000-8000-000000000001",
+		"MEDIA_DRIVER":         "disk",
+		"MEDIA_ROOT":           "/srv/media",
 	}
 }
 

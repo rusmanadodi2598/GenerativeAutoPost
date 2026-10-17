@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/go-playground/validator/v10"
 )
 
 // AppEnv values gate debug detail in error responses.
@@ -61,6 +59,11 @@ type Config struct {
 	TikTokClientSecret   string
 	TikTokRedirectURI    string `validate:"required"`
 	TikTokScopes         string `validate:"required"`
+	GoogleClientID       string `validate:"required" env:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret   string `validate:"required" env:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURI    string `validate:"required" env:"GOOGLE_REDIRECT_URI"`
+	OperatorEmail        string `validate:"required,email" env:"OPERATOR_EMAIL"`
+	AppUIBaseURL         string `env:"APP_UI_BASE_URL"`
 	TokenEncKey          []byte `validate:"required,len=32"`
 	TokenEncKeyID        string `validate:"required"`
 	OperatorID           string `validate:"required,uuid"`
@@ -88,7 +91,7 @@ type Config struct {
 	LogLevel             string        `validate:"required"`
 }
 
-var validate = validator.New()
+var validate = newValidator()
 
 // Load reads the environment once and fails fast on bad values.
 func Load() (Config, error) {
@@ -164,6 +167,11 @@ func Load() (Config, error) {
 		TikTokClientSecret:   getenv("TIKTOK_CLIENT_SECRET"),
 		TikTokRedirectURI:    getenv("TIKTOK_REDIRECT_URI"),
 		TikTokScopes:         getenv("TIKTOK_SCOPES"),
+		GoogleClientID:       getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret:   getenv("GOOGLE_CLIENT_SECRET"),
+		GoogleRedirectURI:    getenv("GOOGLE_REDIRECT_URI"),
+		OperatorEmail:        getenv("OPERATOR_EMAIL"),
+		AppUIBaseURL:         getenv("APP_UI_BASE_URL"),
 		TokenEncKey:          []byte(getenv("TOKEN_ENC_KEY")),
 		TokenEncKeyID:        getenv("TOKEN_ENC_KEY_ID"),
 		OperatorID:           getenv("OPERATOR_ID"),
