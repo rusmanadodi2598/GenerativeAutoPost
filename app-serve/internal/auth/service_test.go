@@ -69,10 +69,10 @@ func stateFromURL(t *testing.T, raw string) string {
 	return parsed.Query().Get("state")
 }
 
-// issueState runs one authorize call and returns the state it stored.
-func issueState(t *testing.T, svc *Service) string {
+// issueState runs one authorize call for operatorID and returns the state it stored.
+func issueState(t *testing.T, svc *Service, operatorID string) string {
 	t.Helper()
-	raw, err := svc.AuthorizeURL(context.Background(), "user.info.basic")
+	raw, err := svc.AuthorizeURL(context.Background(), operatorID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestServiceAuthorizeURL(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, &fakeExchanger{}, &fakeUpserter{})
-			raw, err := h.svc.AuthorizeURL(context.Background(), tc.requested)
+			raw, err := h.svc.AuthorizeURL(context.Background(), testOperatorID, tc.requested)
 			if err != nil {
 				t.Fatalf("AuthorizeURL: %v", err)
 			}
@@ -140,11 +140,11 @@ func TestServiceAuthorizeURL(t *testing.T) {
 func TestServiceAuthorizeURLIssuesDistinctStates(t *testing.T) {
 	h := newHarness(t, &fakeExchanger{}, &fakeUpserter{})
 	ctx := context.Background()
-	first, err := h.svc.AuthorizeURL(ctx, "user.info.basic")
+	first, err := h.svc.AuthorizeURL(ctx, testOperatorID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("first AuthorizeURL: %v", err)
 	}
-	second, err := h.svc.AuthorizeURL(ctx, "user.info.basic")
+	second, err := h.svc.AuthorizeURL(ctx, testOperatorID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("second AuthorizeURL: %v", err)
 	}
@@ -154,12 +154,12 @@ func TestServiceAuthorizeURLIssuesDistinctStates(t *testing.T) {
 		t.Fatal("two authorize calls issued the same state")
 	}
 	for _, state := range []string{stateOne, stateTwo} {
-		scopes, err := h.states.Consume(ctx, state)
+		issuer, err := h.states.Consume(ctx, state)
 		if err != nil {
 			t.Fatalf("consuming issued state: %v", err)
 		}
-		if scopes != "user.info.basic" {
-			t.Fatalf("stored scopes = %q, want the requested subset", scopes)
+		if issuer != testOperatorID {
+			t.Fatalf("stored issuer = %q, want %q", issuer, testOperatorID)
 		}
 	}
 }

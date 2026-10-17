@@ -105,14 +105,14 @@ func errSessionIssue(cause error) *apierror.Error {
 	return apierror.New(apierror.CodeInternal, 0, "Could not start a session. Try again.").Wrap(cause)
 }
 
-// AuthorizeURL issues a single use state and builds the TikTok redirect. An
-// empty requestedScopes falls back to the configured default set.
-func (s *Service) AuthorizeURL(ctx context.Context, requestedScopes string) (string, error) {
+// AuthorizeURL issues a single use state bound to the operator and builds the
+// TikTok redirect; empty requestedScopes falls back to the configured set.
+func (s *Service) AuthorizeURL(ctx context.Context, operatorID, requestedScopes string) (string, error) {
 	scopes := requestedScopes
 	if scopes == "" {
 		scopes = s.cfg.Scopes
 	}
-	state, err := s.states.Issue(ctx, scopes)
+	state, err := s.states.Issue(ctx, operatorID)
 	if err != nil {
 		return "", err
 	}
@@ -135,13 +135,16 @@ func (s *Service) CallbackURL(status string) string {
 	return s.cfg.AppUIBaseURL + path
 }
 
-// CompleteCallback consumes the state, exchanges the code, and upserts the
-// account for the signed in operator. It mints no session: the browser already
-// holds the operator session from the Google sign in. A spent or unknown state
-// fails before the code is exchanged, so a replayed callback does no TikTok work.
+// CompleteCallback proves the state was issued to the signed in operator,
+// then exchanges the code and upserts the account for that operator. A foreign
+// or spent state fails before the exchange, and no session is minted here.
 func (s *Service) CompleteCallback(ctx context.Context, operatorID, code, state string) error {
-	if _, err := s.states.Consume(ctx, state); err != nil {
+	issuer, err := s.states.Consume(ctx, state)
+	if err != nil {
 		return err
+	}
+	if issuer != operatorID {
+		return errStateUnauthorized
 	}
 	tokens, err := s.tokens.ExchangeCode(ctx, code)
 	if err != nil {

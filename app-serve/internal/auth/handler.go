@@ -75,16 +75,6 @@ type refreshRequest struct {
 	AccountID string `json:"account_id" binding:"required"`
 }
 
-// Authorize starts the TikTok sign in with an optional scope override.
-func (h *Handler) Authorize(c *gin.Context) {
-	url, err := h.svc.AuthorizeURL(c.Request.Context(), c.Query("scope"))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	c.Redirect(http.StatusFound, url)
-}
-
 // Refresh rotates the TikTok tokens of one account.
 func (h *Handler) Refresh(c *gin.Context) {
 	sess, ok := SessionFrom(c)

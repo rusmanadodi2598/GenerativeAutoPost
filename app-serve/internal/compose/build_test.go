@@ -99,3 +99,40 @@ func TestBuildFailsFastOnABadKey(t *testing.T) {
 		t.Fatal("Build succeeded on a short encryption key")
 	}
 }
+
+// TestBuildTrustsNoProxyByDefault proves the wired engine ignores a spoofed
+// X-Forwarded-For when TRUSTED_PROXIES is unset.
+func TestBuildTrustsNoProxyByDefault(t *testing.T) {
+	app, err := Build(testConfig(t), testPool(t), testRedis(t), nil)
+	if err != nil {
+		t.Fatalf("Build returned %v", err)
+	}
+	if got := clientIPFor(t, app.Engine, "203.0.113.7:5000", "198.51.100.1"); got != "203.0.113.7" {
+		t.Fatalf("ClientIP = %q, want the peer address", got)
+	}
+}
+
+// TestBuildTrustsConfiguredProxy proves TRUSTED_PROXIES reaches the engine.
+func TestBuildTrustsConfiguredProxy(t *testing.T) {
+	t.Setenv("TRUSTED_PROXIES", "198.51.100.0/24")
+	app, err := Build(testConfig(t), testPool(t), testRedis(t), nil)
+	if err != nil {
+		t.Fatalf("Build returned %v", err)
+	}
+	if got := clientIPFor(t, app.Engine, "198.51.100.1:5000", "203.0.113.9"); got != "203.0.113.9" {
+		t.Fatalf("ClientIP = %q, want the forwarded address", got)
+	}
+}
+
+// clientIPFor serves one probe that echoes ClientIP for a peer and forwarded
+// pair, so the trusted proxy setting is observable over HTTP.
+func clientIPFor(t *testing.T, engine *gin.Engine, remoteAddr, forwarded string) string {
+	t.Helper()
+	engine.GET("/probe-client-ip", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/probe-client-ip", nil)
+	req.RemoteAddr = remoteAddr
+	req.Header.Set("X-Forwarded-For", forwarded)
+	engine.ServeHTTP(rec, req)
+	return rec.Body.String()
+}

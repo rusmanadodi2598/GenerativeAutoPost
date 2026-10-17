@@ -18,10 +18,11 @@ import (
 	"testing"
 )
 
-// callbackState issues one authorize URL and returns its OAuth state.
+// callbackState issues one authorize URL for the test operator and returns
+// its OAuth state.
 func (h *httpHarness) callbackState(t *testing.T) string {
 	t.Helper()
-	raw, err := h.svc.AuthorizeURL(t.Context(), "user.info.basic")
+	raw, err := h.svc.AuthorizeURL(t.Context(), testOperatorID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}

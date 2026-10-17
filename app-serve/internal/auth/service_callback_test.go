@@ -1,7 +1,7 @@
 // Package auth_test pins the OAuth callback account upsert.
 //
 // @file      internal/auth/service_callback_test.go
-// @for       CompleteCallback upsert and failure tests.
+// @for       CompleteCallback upsert, binding, and failure tests.
 // @uses      testing, context, reflect, internal/apierror, internal/tiktokclient
 // @reason    The callback connects an account and must not mint a session.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
@@ -29,7 +29,7 @@ func TestCompleteCallback_UpsertsOnly(t *testing.T) {
 	exchanger := &fakeExchanger{tokens: tokens}
 	upserter := &fakeUpserter{id: "acct-1"}
 	h := newHarness(t, exchanger, upserter)
-	state := issueState(t, h.svc)
+	state := issueState(t, h.svc, "op-9")
 
 	if err := h.svc.CompleteCallback(context.Background(), "op-9", "auth-code-1", state); err != nil {
 		t.Fatalf("CompleteCallback: %v", err)
@@ -56,7 +56,7 @@ func TestServiceCompleteCallbackRejectsReusedState(t *testing.T) {
 	exchanger := &fakeExchanger{tokens: tiktokclient.TokenSet{Scope: "user.info.basic"}}
 	h := newHarness(t, exchanger, &fakeUpserter{id: "acct-1"})
 	ctx := context.Background()
-	state := issueState(t, h.svc)
+	state := issueState(t, h.svc, "op-1")
 
 	if err := h.svc.CompleteCallback(ctx, "op-1", "auth-code-1", state); err != nil {
 		t.Fatalf("first CompleteCallback: %v", err)
@@ -76,11 +76,29 @@ func TestServiceCompleteCallbackRejectsUnknownState(t *testing.T) {
 	}
 }
 
+// TestServiceCompleteCallbackRejectsForeignState proves a state issued to one
+// operator cannot attach an account to another operator's row.
+func TestServiceCompleteCallbackRejectsForeignState(t *testing.T) {
+	exchanger := &fakeExchanger{tokens: tiktokclient.TokenSet{Scope: "user.info.basic"}}
+	upserter := &fakeUpserter{id: "acct-1"}
+	h := newHarness(t, exchanger, upserter)
+	state := issueState(t, h.svc, "op-attacker")
+
+	err := h.svc.CompleteCallback(context.Background(), "op-victim", "auth-code-1", state)
+	wantCode(t, err, apierror.CodeUnauthorized)
+	if exchanger.calls != 0 {
+		t.Fatalf("exchange ran %d times on a foreign state", exchanger.calls)
+	}
+	if upserter.calls != 0 {
+		t.Fatalf("upsert ran %d times on a foreign state", upserter.calls)
+	}
+}
+
 func TestServiceCompleteCallbackKeepsPartialScopes(t *testing.T) {
 	exchanger := &fakeExchanger{tokens: tiktokclient.TokenSet{Scope: "user.info.basic"}}
 	upserter := &fakeUpserter{id: "acct-1"}
 	h := newHarness(t, exchanger, upserter)
-	state := issueState(t, h.svc)
+	state := issueState(t, h.svc, "op-1")
 
 	if err := h.svc.CompleteCallback(context.Background(), "op-1", "auth-code-1", state); err != nil {
 		t.Fatalf("CompleteCallback: %v", err)
@@ -95,7 +113,7 @@ func TestServiceCompleteCallbackExchangeFailure(t *testing.T) {
 	exchanger := &fakeExchanger{err: apierror.New(apierror.CodeTikTokUnavailable, 0, "TikTok is down.")}
 	upserter := &fakeUpserter{id: "acct-1"}
 	h := newHarness(t, exchanger, upserter)
-	state := issueState(t, h.svc)
+	state := issueState(t, h.svc, "op-1")
 
 	err := h.svc.CompleteCallback(context.Background(), "op-1", "auth-code-1", state)
 	wantCode(t, err, apierror.CodeTikTokUnavailable)

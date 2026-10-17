@@ -122,6 +122,11 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 	})
 
 	engine := httpapi.New(logger).Engine()
+	// Empty TRUSTED_PROXIES trusts no proxy, so ClientIP is the peer address
+	// and X-Forwarded-For cannot move a client into another throttle bucket.
+	if err := engine.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, fmt.Errorf("compose: setting trusted proxies: %w", err)
+	}
 	Mount(engine, Routes{
 		Auth: func(r gin.IRouter) {
 			auth.RegisterRoutes(r, authSvc, sessions,

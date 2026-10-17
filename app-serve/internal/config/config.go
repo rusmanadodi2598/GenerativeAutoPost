@@ -64,6 +64,7 @@ type Config struct {
 	GoogleRedirectURI    string `validate:"required" env:"GOOGLE_REDIRECT_URI"`
 	OperatorEmail        string `validate:"required,email" env:"OPERATOR_EMAIL"`
 	AppUIBaseURL         string `env:"APP_UI_BASE_URL"`
+	TrustedProxies       []string
 	TokenEncKey          []byte `validate:"required,len=32"`
 	TokenEncKeyID        string `validate:"required"`
 	OperatorID           string `validate:"required,uuid"`
@@ -172,6 +173,7 @@ func Load() (Config, error) {
 		GoogleRedirectURI:    getenv("GOOGLE_REDIRECT_URI"),
 		OperatorEmail:        getenv("OPERATOR_EMAIL"),
 		AppUIBaseURL:         getenv("APP_UI_BASE_URL"),
+		TrustedProxies:       listOr("TRUSTED_PROXIES"),
 		TokenEncKey:          []byte(getenv("TOKEN_ENC_KEY")),
 		TokenEncKeyID:        getenv("TOKEN_ENC_KEY_ID"),
 		OperatorID:           getenv("OPERATOR_ID"),

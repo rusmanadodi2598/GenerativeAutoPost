@@ -169,3 +169,37 @@ func TestRequireCSRFRejectsWithoutSession(t *testing.T) {
 
 	assertRejected(t, c, rec, http.StatusForbidden, apierror.CodeForbidden)
 }
+
+// allowingLimiter records the key of every hit and allows the request.
+type allowingLimiter struct {
+	keys []string
+}
+
+func (l *allowingLimiter) Allow(_ context.Context, key string) (bool, error) {
+	l.keys = append(l.keys, key)
+	return true, nil
+}
+
+// TestThrottleIgnoresForwardedForWithoutTrustedProxies proves a client cannot
+// rotate X-Forwarded-For to escape the budget when no proxy is trusted.
+func TestThrottleIgnoresForwardedForWithoutTrustedProxies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := &allowingLimiter{}
+	router := gin.New()
+	if err := router.SetTrustedProxies(nil); err != nil {
+		t.Fatalf("SetTrustedProxies: %v", err)
+	}
+	router.GET("/probe", Throttle(limiter, nil))
+
+	for _, forwarded := range []string{"198.51.100.1", "198.51.100.2"} {
+		req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+		req.RemoteAddr = "203.0.113.7:5000"
+		req.Header.Set("X-Forwarded-For", forwarded)
+		router.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	want := authThrottlePrefix + "203.0.113.7"
+	if len(limiter.keys) != 2 || limiter.keys[0] != want || limiter.keys[1] != want {
+		t.Fatalf("limiter keys = %v, want two hits on %q", limiter.keys, want)
+	}
+}
