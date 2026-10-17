@@ -75,7 +75,7 @@ Rules:
 | `video.publish` | creator info, direct post | Yes |
 | `video.upload` | draft upload, status | Yes |
 
-Scope requests are per feature, not all at once at login. The first login asks for `user.info.basic` only. Each publish or insight feature requests its scope when first used. This keeps the consent screen honest and limits what an unaudited client asks for. Open item carried from 001 section 13.
+Scope requests are per feature, not all at once at login. `GET /auth/tiktok/authorize` takes an optional `scope` subset and falls back to `TIKTOK_SCOPES`, so the console can ask for one feature's scope when it is first used. This keeps the consent screen honest and limits what an unaudited client asks for.
 
 ## 3. Creator Info (required before every direct post)
 
@@ -267,7 +267,7 @@ Backoff is exponential with jitter, capped. Status fetch respects the 30 request
 
 Video fields available: `id`, `create_time`, `cover_image_url`, `share_url`, `video_description`, `duration`, `height`, `width`, `title`, `embed_html`, `embed_link`, `like_count`, `comment_count`, `share_count`, `view_count`, `is_aigc`.
 
-Statistics are stored as a `video_stats` series for trends. The UI shows the stored series with each point's `fetched_at`, never a live number presented as current. Cover URLs expire, so the app re-queries before display when the URL is older than its TTL.
+Statistics are stored as a `video_stats` series for trends. A background worker sweeps every connected account on `STATS_REFRESH_INTERVAL` (default 3 hours) and prunes points older than `STATS_RETENTION` (default 168 hours), so the series covers a 7 day window. The UI shows the stored series with each point's `fetched_at`, never a live number presented as current. Cover URLs expire, so the app re-queries before display when the URL is older than its TTL.
 
 Stats are shown only when the TikTok response contains them. Empty means empty, not zero (`AGENTS.md` and antislop R-17).
 
@@ -291,7 +291,7 @@ Every TikTok response has `error.code`, `error.message`, `error.log_id`. Any cod
 
 Unknown codes map to `TIKTOK_UNKNOWN_ERROR` with the `log_id` kept for support. The raw TikTok message is logged, never sent to the client in production.
 
-Post-failure reasons (`fail_reason`, webhook `reason`) use their own mapping: `file_format_check_failed`, `duration_check_failed`, `frame_rate_check_failed`, `picture_size_check_failed`, `video_pull_failed`, `photo_pull_failed`, `internal` (retryable), and the rest map to `PUBLISH_FAILED_<REASON>` with a client message that tells the user which input to change.
+Post-failure reasons (`fail_reason`, webhook `reason`) are stored verbatim and surfaced on the attempt as `fail_reason`, not mapped to an error code: `file_format_check_failed`, `duration_check_failed`, `frame_rate_check_failed`, `picture_size_check_failed`, `video_pull_failed`, `photo_pull_failed`, `internal`, and `RECONCILE_EXHAUSTED` when the polling fallback reaches its retry cap. The console maps the reason to copy that tells the user which input to change.
 
 ## 9. Constraints Checklist for Implementation
 
@@ -305,5 +305,5 @@ Post-failure reasons (`fail_reason`, webhook `reason`) use their own mapping: `f
 ## 10. Open Items
 
 1. Exact consent and policy wording, copied from the Music Usage Confirmation and content sharing guidelines during implementation, verified against the live page.
-2. `video/list` rate limit is not stated in the docs. Treat it conservatively until TikTok confirms it.
-3. The `user.info.stats` field list was taken from the Get User Info page. Re-verify before implementation because the docs flag a pending migration.
+2. `video/list` has no documented per-token limit, so the app caps it at 30 per minute per account (`FamilyListVideos`) until TikTok confirms otherwise.
+3. The `user.info.stats` fields are implemented as `follower_count`, `following_count`, `likes_count`, and `video_count`; re-verify against the live page before the console copy is finalized.

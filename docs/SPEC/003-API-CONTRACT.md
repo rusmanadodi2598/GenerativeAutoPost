@@ -34,24 +34,23 @@
 }
 ```
 
-Paginated lists add a cursor block. There is no total count, because a count over a large TikTok dataset is both slow and meaningless.
+Paginated lists carry their cursor in `data`, not in `meta`. The video list returns a page object:
 
 ```json
 {
-  "data": [ { "id": "..." } ],
+  "data": {
+    "videos": [ { "id": "..." } ],
+    "cursor": "1735689600000",
+    "has_more": true
+  },
   "meta": {
     "request_id": "req_01J9Z8V2K4",
-    "server_time": "2026-10-12T09:30:00Z",
-    "pagination": {
-      "next_cursor": "1735689600000",
-      "has_more": true,
-      "limit": 20
-    }
+    "server_time": "2026-10-12T09:30:00Z"
   }
 }
 ```
 
-`next_cursor` is opaque to the client. For video lists it is the TikTok cursor, which is a UTC millisecond timestamp.
+`cursor` is opaque to the client. For the video list it is the TikTok cursor, a UTC millisecond timestamp; `has_more` says whether the next page exists. The publish list returns `data` as a plain array and takes a `cursor` query parameter; the account list returns a plain array.
 
 ## 3. Error Response (RFC 9457)
 
@@ -182,7 +181,7 @@ Validation runs before storage: allowed content types only, byte-size cap, and f
 | `POST` | `/publish/drafts` | video draft (inbox) | `202` attempt |
 | `PUT` | `/publish/{id}/chunks` | raw chunk bytes | `200` progress |
 | `GET` | `/publish/{id}` | none | `200` attempt |
-| `GET` | `/publish` | `status`, `account_id`, `cursor`, `limit` | `200` list |
+| `GET` | `/publish` | `status`, `account_id`, `cursor`, `limit` (default 20, max 100) | `200` array |
 | `POST` | `/publish/{id}/reconcile` | none | `202` | Forces a status fetch. The polling fallback, on demand |
 
 Direct post video body:
@@ -243,7 +242,7 @@ The upstream `upload_url` is not exposed to app-ui. Chunks are proxied through `
 
 | Method | Path | Params / body | Success |
 |---|---|---|---|
-| `GET` | `/videos` | `account_id` (required), `cursor`, `limit` (max 20) | `200` list |
+| `GET` | `/videos` | `account_id` (required), `cursor`, `max_count` (max 20) | `200` page `{videos, cursor, has_more}` |
 | `POST` | `/videos/query` | `{"account_id": "...", "video_ids": ["..."]}` (max 20) | `200` list |
 | `GET` | `/videos/{video_id}` | `account_id` | `200` video |
 | `GET` | `/videos/{video_id}/stats` | `account_id`, `range` (`7d`, default `7d`) | `200` series `{ video_id, range, points, truncated }`, max 500 points, ascending by `fetched_at` |
@@ -282,6 +281,7 @@ This route is not under `/api/v1` by design: it is TikTok's contract, not ours, 
 | Publish init, per account | Mirrors TikTok: 6 per minute | `429` before the upstream call |
 | Status fetch, per account | Mirrors TikTok: 30 per minute | `429` before the upstream call |
 | Creator info, per account | Mirrors TikTok: 20 per minute | Served from cache when fresh |
+| Video list, per account | TikTok publishes none, so 30 per minute | Shared by the stats sweep, which pages with a delay |
 | Webhook, per IP | Fixed window | `429`, logged |
 
 Local limits exist so we fail fast instead of burning the upstream quota. A local `429` and an upstream `429` are distinct codes: `RATE_LIMITED` and `TIKTOK_RATE_LIMITED`. The first is our discipline, the second is TikTok's.
@@ -298,7 +298,7 @@ Each route gets a table-driven test for the happy path, a validation failure, an
 
 ## 12. Open Items
 
-1. Upload size caps per content type, to be set once TikTok's current limits are re-verified.
-2. Whether the operator login is local credentials or SSO. The specs assume local credentials with `password_hash` until told otherwise.
+1. Upload size caps per content type ship as config: `MEDIA_MAX_BYTES`, `MEDIA_MAX_DURATION_MS`, `MEDIA_ALLOWED_TYPES`, and `CHUNK_MAX_BYTES`.
+2. Operator login is TikTok OAuth only. There is no password or SSO route; `OPERATOR_ID` comes from env and the `users` row is not seeded. See `SYSTEM_MAP.md` section 9.
 3. ~~The `range` options for `/videos/{id}/stats`.~~ Closed by `docs/DECISIONS/002-UPLOAD-IDEMPOTENCY-R2-STATS-SERIES.md`, then amended by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`: `7d`, default `7d`.
 4. Downsampling for `video_stats` rows. Retention is closed by `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md`; a window longer than 7 days still needs a storage decision.

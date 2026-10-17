@@ -39,11 +39,14 @@ app-serve/
   internal/
     config/                      typed env config, fail fast at boot
     platform/
-      httpapi/                   Gin server, middleware, problem writer
+      httpapi/                   Gin engine, request id, access log, recovery
       postgres/                  pool, transaction helper, migration runner
       redisx/                    client, key namespacing
       logging/                   slog setup, request-scoped logger
       crypto/                    AES-256-GCM keyring, HMAC helpers
+      idempotency/               claim, replay, complete, release over Redis
+      ratelimit/                 fixed-window counter over Redis
+      r2/                        SigV4 signing, Cloudflare R2 object requests
     apierror/                    RFC 9457 problem type, catalog, mapper
     tiktokclient/                outbound TikTok adapter (see 002)
     auth/                        OAuth state, callback, token lifecycle
@@ -52,6 +55,7 @@ app-serve/
     webhook/                     signature verify, event store, dispatcher
     insight/                     video list/query, user info, stats
     media/                       media store interface, chunk planner, URL signing
+    compose/                     composition root: builds services, mounts route tables
   migrations/                    up/down pairs, numbered
   .env.example
 ```
@@ -73,7 +77,7 @@ Orchestrates creator info lookup, direct post for video and photo, and draft upl
 Verifies `TikTok-Signature`, acknowledges with `200`, then processes asynchronously and idempotently. This module is the primary source of publish state. Details are in `002-TIKTOK-INTEGRATION.md`.
 
 ### 4.5 insight
-Reads video lists, video details, and user info, and stores periodic stats snapshots. All reads are bounded and paginated.
+Reads video lists, video details, and user info, and stores periodic stats snapshots. All reads are bounded and paginated. A background worker refreshes one point per live video on `STATS_REFRESH_INTERVAL` and prunes points older than `STATS_RETENTION`.
 
 ### 4.6 media
 Defines a `Store` interface with two implementations: local disk and S3-compatible (Cloudflare R2). Local disk is the default for development, S3 is enabled by configuration. The module also computes a chunk plan that satisfies TikTok constraints and signs public URLs for `PULL_FROM_URL` from the verified domain.
@@ -84,17 +88,17 @@ All primary keys are UUIDv7 unless noted. All timestamps are `timestamptz`.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` | `id`, `email`, `password_hash`, `created_at` | Operator of the dashboard |
-| `sessions` | `id`, `user_id`, `expires_at`, `csrf_token` | Backed by Redis, mirrored for audit |
-| `tiktok_accounts` | `id`, `user_id`, `open_id` UNIQUE, `union_id`, `display_name`, `avatar_url`, `scopes TEXT[]`, `access_token_enc`, `access_token_expires_at`, `refresh_token_enc`, `refresh_expires_at`, `revoked_at` | Token columns are ciphertext plus `key_id` |
-| `publish_attempts` | `id`, `account_id`, `publish_id` UNIQUE, `post_mode`, `media_type`, `source`, `status`, `privacy_level`, `title`, `description`, `fail_reason`, `post_id`, `uploaded_bytes`, `created_at`, `completed_at` | One row per initialized publish |
+| `users` | `id`, `email`, `password_hash`, `created_at` | Operator row; no login route yet, `OPERATOR_ID` comes from env |
+| `sessions` | `id`, `user_id`, `expires_at`, `csrf_token` | Declared for audit; sessions actually live in Redis |
+| `tiktok_accounts` | `id`, `user_id`, `open_id` UNIQUE, `union_id`, `display_name`, `avatar_url`, `scopes TEXT[]`, `access_token_enc`, `access_token_expires_at`, `refresh_token_enc`, `refresh_expires_at`, `revoked_at`, `needs_reauth` | Token columns are ciphertext plus `key_id` |
+| `publish_attempts` | `id`, `account_id`, `publish_id` UNIQUE, `post_mode`, `media_type`, `source`, `status`, `privacy_level`, `title`, `description`, `fail_reason`, `post_id`, `uploaded_bytes`, `media_id`, `reconcile_failures`, `created_at`, `completed_at` | One row per initialized publish; `media_id` is nullable |
 | `publish_chunks` | `id`, `publish_attempt_id`, `chunk_index`, `byte_start`, `byte_end`, `content_range`, `uploaded_at` | Transfer bookkeeping for `FILE_UPLOAD` |
 | `webhook_events` | `id`, `dedupe_key` UNIQUE, `event_type`, `publish_id`, `post_id`, `payload JSONB`, `received_at`, `processed_at` | Idempotency guard |
-| `video_stats` | `id`, `video_id`, `view_count`, `like_count`, `comment_count`, `share_count`, `fetched_at` | Time series for insights |
-| `creator_info_snapshots` | `id`, `account_id`, `privacy_level_options TEXT[]`, `comment_disabled`, `duet_disabled`, `stitch_disabled`, `max_video_post_duration_sec`, `fetched_at` | Cached, short TTL |
+| `video_stats` | `id`, `video_id`, `view_count`, `like_count`, `comment_count`, `share_count`, `fetched_at` | Append-only series with nullable counts; pruned to a 7 day window |
+| `creator_info_snapshots` | `id`, `account_id`, `creator_username`, `creator_nickname`, `creator_avatar_url`, `privacy_level_options TEXT[]`, `comment_disabled`, `duet_disabled`, `stitch_disabled`, `max_video_post_duration_sec`, `fetched_at` | Cached, short TTL |
 | `outbox` | `id`, `aggregate_type`, `aggregate_id`, `event_type`, `payload JSONB`, `published_at` | Transactional outbox to Redis Streams |
 
-Indexes required by `AGENTS.md` 1.7: `tiktok_accounts(open_id)`, `publish_attempts(publish_id)`, `publish_attempts(account_id, status)`, `webhook_events(dedupe_key)`, `video_stats(video_id, fetched_at DESC)`.
+Indexes required by `AGENTS.md` 1.7: `tiktok_accounts(open_id)`, `publish_attempts(publish_id)`, `publish_attempts(account_id, status)`, `publish_attempts(media_id)`, `webhook_events(dedupe_key)`, `webhook_events(processed_at)`, `video_stats(video_id, fetched_at DESC)`, `creator_info_snapshots(account_id, fetched_at)`, `outbox(published_at)`.
 
 Destructive migrations require explicit sign-off and a working `down` before merge.
 
@@ -102,12 +106,14 @@ Destructive migrations require explicit sign-off and a working `down` before mer
 
 | Key pattern | Purpose | TTL |
 |---|---|---|
-| `oauth:state:<state>` | Single-use CSRF state | 10 minutes |
-| `sess:<session_id>` | Server-side session | Session lifetime |
-| `rl:token:<account_id>` | Token-bucket guard against TikTok limits | Rolling minute |
-| `rl:webhook:<ip>` | Inbound webhook throttle | Rolling minute |
-| `hook:seen:<dedupe_key>` | Replay guard before DB write | 24 hours |
-| `stream:events` | Outbox dispatch and worker consumption | Trimmed by length |
+| `genauto:session:<id>` | Server-side operator session, sliding expiry | Session lifetime |
+| `genauto:oauth:state:<state>` | Single-use CSRF state | 10 minutes |
+| `genauto:auth:refresh-lock:<account_id>` | Serializes token refresh per account | Short |
+| `genauto:ratelimit:<family>:<account_id>:<minute>` | Outbound per-account TikTok budget | Fixed window |
+| `genauto:ratelimit:webhook:<ip>` | Inbound webhook throttle | Fixed window |
+| `genauto:idempotency:<key>:hash` / `:resp` | Request claim and stored replay | 24 hours |
+| `genauto:webhook:dedupe:<dedupe_key>` | Replay guard before the DB row | Delivery window |
+| `genauto:stream:events` | Outbox relay target | Trimmed by length |
 
 Redis never holds the only copy of anything important. A Redis flush degrades rate limiting and replay defense, but the durable `webhook_events.dedupe_key` unique index still prevents double processing.
 
@@ -117,7 +123,7 @@ Redis never holds the only copy of anything important. A Redis flush degrades ra
 - Every goroutine recovers from panic and logs the stack, per `AGENTS.md` 1.6.
 - Goroutines have a termination condition, driven by context cancellation and a wait group.
 - Outbound calls retry only on network errors, `429`, and `5xx`, with exponential backoff plus jitter, bounded attempts, and a documented policy per call site. `4xx` domain errors never retry.
-- Per-account rate limits are enforced in one place: 6 requests per minute for `video/init` and `inbox/video/init`, 20 for `creator_info/query`, 30 for `status/fetch`. The limiter is a token bucket in Redis, not an in-process counter, so it holds across replicas.
+- Per-account rate limits are enforced in one place: 6 requests per minute for `video/init` and `inbox/video/init`, 20 for `creator_info/query`, 30 for `status/fetch`, and 30 for `video/list`. The limiter is a fixed-window counter in Redis, not an in-process counter, so it holds across replicas.
 
 ## 8. Error Model
 
@@ -187,13 +193,20 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | App credentials |
 | `TIKTOK_REDIRECT_URI` | Must match the registered URI exactly |
 | `TIKTOK_SCOPES` | Comma-joined scope list |
-| `TOKEN_ENC_KEY`, `TOKEN_ENC_KEY_ID` | AES-256-GCM master key and rotation id |
+| `TOKEN_ENC_KEY`, `TOKEN_ENC_KEY_ID` | AES-256-GCM master key (32 bytes) and rotation id |
+| `OPERATOR_ID` | Operator UUID the OAuth callback attaches accounts to |
 | `MEDIA_DRIVER` | `disk` or `s3` |
+| `MEDIA_ROOT` | Local object root, required when `MEDIA_DRIVER=disk` |
 | `MEDIA_PUBLIC_BASE_URL` | Verified domain used for `PULL_FROM_URL` |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | Cloudflare R2 settings |
+| `MEDIA_MAX_BYTES`, `MEDIA_MAX_DURATION_MS`, `MEDIA_ALLOWED_TYPES` | Upload caps and the allowed content-type list |
+| `CHUNK_MAX_BYTES` | Bound on one chunk body, default `64 MiB` |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION` | Cloudflare R2 settings; region defaults `auto` |
+| `WORKER_SIZE` | Webhook worker pool size, default `4` |
+| `WEBHOOK_THROTTLE_WINDOW`, `WEBHOOK_THROTTLE_MAX` | Per-IP webhook budget, defaults `2m` and `120` |
 | `SESSION_COOKIE_NAME`, `SESSION_TTL` | Session settings |
 | `STATS_REFRESH_INTERVAL` | Stats worker sweep cadence, default `3h` |
 | `STATS_RETENTION` | Stats point age cutoff, default `168h` |
+| `RUN_MIGRATIONS`, `MIGRATIONS_DIR` | Apply migrations then exit; dir required when enabled |
 | `LOG_LEVEL` | slog level |
 
 `.env` lives at `app-serve/.env`. `app-serve/.env.example` is committed with the same keys and no values.
@@ -204,6 +217,8 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 
 ## 13. Open Items
 
-1. Draft upload timing: first milestone or second. The webhook events for it are already modeled either way.
-2. Scope request strategy at first login, given that `video.publish` and `video.upload` need audit approval for public posting.
-3. Whether an operator account is seeded manually or through a bootstrap command.
+Every v1 open item is closed by the implementation:
+
+1. Draft upload shipped in v1.
+2. Scope requests are per feature: `GET /auth/tiktok/authorize` takes an optional `scope` subset and falls back to `TIKTOK_SCOPES`.
+3. The operator is configured with `OPERATOR_ID`; there is no seed or bootstrap command.
