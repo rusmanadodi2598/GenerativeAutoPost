@@ -256,7 +256,6 @@ git commit -m "feat(operator): ensure the operator row on login"
 - Create: `app-serve/internal/auth/google.go`
 - Test: `app-serve/internal/auth/google_test.go`
 - Modify: `app-serve/internal/auth/session.go` (a shared `mintSession` helper)
-- Modify: `app-serve/internal/auth/service.go` (drop session minting from the TikTok callback)
 - Modify: `app-serve/internal/auth/state.go` (generalize the payload error wording)
 
 **Interfaces:**
@@ -282,7 +281,6 @@ func (s *GoogleService) Complete(ctx context.Context, code, state string) (*Sess
 ```
 - `AuthorizeURL` mints a nonce, stores it as the state payload, and returns the provider URL.
 - `Complete` consumes the state into the nonce, exchanges the code, verifies the token with that nonce, compares the email to `OperatorEmail` trimmed and lowercased, returns a generic 403 on a mismatch, calls `operators.Ensure`, and mints the session with an empty scope list.
-- `Service.CompleteCallback(ctx, operatorID, code, state) error` no longer mints; it upserts the account for `operatorID` only.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -293,14 +291,13 @@ func (s *GoogleService) Complete(ctx context.Context, code, state string) (*Sess
 - `TestGoogleComplete_RejectsAReplayedState` calls `Complete` twice, the second expects unauthorized.
 - `TestGoogleComplete_RejectsATokenWithTheWrongNonce`.
 - `TestGoogleComplete_EnsuresTheOperatorRow` asserts `Ensure` was called with the operator id and email.
-- Update `service_callback_test.go`: `TestCompleteCallback_UpsertsOnly` asserts no session is created and the account is upserted for the passed operator id.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/auth/ -run Google -v`
 Expected: FAIL, symbols missing.
 
-- [ ] **Step 3: Implement** `google.go`, add `mintSession(operatorID string, scopes []string)` to `session.go`, remove `Service.newSession`, and change `CompleteCallback` to the new signature. Log a refused email at warn with the address, and drop `ServiceConfig.OperatorID` if `CompleteCallback`'s new parameter leaves it unused.
+- [ ] **Step 3: Implement** `google.go` and add `mintSession(operatorID string, scopes []string)` to `session.go`. Log a refused email at warn with the address. Leave `Service` and `CompleteCallback` untouched; the TikTok demotion lands in Task 6 so every task keeps a compiling tree.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -310,8 +307,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app-serve/internal/auth/google.go app-serve/internal/auth/google_test.go app-serve/internal/auth/session.go app-serve/internal/auth/service.go app-serve/internal/auth/state.go app-serve/internal/auth/service_callback_test.go
-git commit -m "feat(auth): add google login and demote the tiktok callback"
+git add app-serve/internal/auth/google.go app-serve/internal/auth/google_test.go app-serve/internal/auth/session.go app-serve/internal/auth/state.go
+git commit -m "feat(auth): add the google login service"
 ```
 
 ---
@@ -323,8 +320,10 @@ git commit -m "feat(auth): add google login and demote the tiktok callback"
 - Modify: `app-serve/internal/auth/router.go`
 - Modify: `app-serve/internal/auth/middleware.go`
 - Modify: `app-serve/internal/auth/handler_callback.go`
+- Modify: `app-serve/internal/auth/service.go` (drop session minting from the TikTok callback)
 - Test: `app-serve/internal/auth/google_handler_test.go`
 - Test: `app-serve/internal/auth/handler_oauth_test.go`
+- Test: `app-serve/internal/auth/service_callback_test.go`
 
 **Interfaces:**
 - Consumes: `GoogleService` from Task 5.
@@ -347,8 +346,12 @@ type IPLimiter interface {
 // Throttle refuses over-budget sources with 429 before the handler runs.
 func Throttle(limiter IPLimiter, logger *slog.Logger) gin.HandlerFunc
 
-// RouterConfig gains Throttle gin.HandlerFunc (nil means no limit).
-func RegisterRoutes(r gin.IRouter, svc *Service, google *GoogleService, sessions *SessionStore, cfg RouterConfig)
+// RegisterRoutes keeps its signature; its two TikTok browser routes gain the
+// redirect guard. Google mounts through its own function.
+func RegisterGoogleRoutes(r gin.IRouter, google *GoogleService, cfg RouterConfig)
+
+// RouterConfig gains Throttle gin.HandlerFunc (used by RegisterGoogleRoutes).
+// Service.CompleteCallback(ctx, operatorID, code, state) error no longer mints.
 ```
 - `Authorize` redirects to the Google URL; `Callback` sets the cookie and
   redirects to the console root on success, or to `/auth/result?status=error`
@@ -358,6 +361,8 @@ func RegisterRoutes(r gin.IRouter, svc *Service, google *GoogleService, sessions
 - The TikTok `authorize` and `callback` routes now use `RequireSessionRedirect`.
 - `handler_callback.go` reads the session and calls
   `CompleteCallback(ctx, sess.OperatorID, code, state)`.
+- `Service.CompleteCallback` drops the session mint and `Service.newSession`
+  is removed; the shared `mintSession` helper from Task 5 is the only minter.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -367,13 +372,14 @@ func RegisterRoutes(r gin.IRouter, svc *Service, google *GoogleService, sessions
 - `TestGoogleCallback_RefusalRedirectsWithoutACookie` asserts a redirect to `status=error` and no cookie.
 - `TestTikTokAuthorize_WithoutSessionRedirects` asserts a 302 to the result page, not a 401.
 - Update `handler_oauth_test.go` so the TikTok callback tests carry a session.
+- `TestCompleteCallback_UpsertsOnly` in `service_callback_test.go` asserts no session is created and the account is upserted for the passed operator id.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/auth/ -run 'Google|TikTokAuthorize' -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** the handlers, the redirect guard, and the route changes.
+- [ ] **Step 3: Implement** the handlers, the redirect guard, `RegisterGoogleRoutes`, and the TikTok demotion in `service.go` and `handler_callback.go`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -383,8 +389,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app-serve/internal/auth/handler_google.go app-serve/internal/auth/router.go app-serve/internal/auth/middleware.go app-serve/internal/auth/handler_callback.go app-serve/internal/auth/google_handler_test.go app-serve/internal/auth/handler_oauth_test.go
-git commit -m "feat(auth): mount the google routes and guard the tiktok connect routes"
+git add app-serve/internal/auth/handler_google.go app-serve/internal/auth/router.go app-serve/internal/auth/middleware.go app-serve/internal/auth/handler_callback.go app-serve/internal/auth/service.go app-serve/internal/auth/google_handler_test.go app-serve/internal/auth/handler_oauth_test.go app-serve/internal/auth/service_callback_test.go
+git commit -m "feat(auth): mount the google routes and demote the tiktok callback"
 ```
 
 ---
@@ -397,7 +403,7 @@ git commit -m "feat(auth): mount the google routes and guard the tiktok connect 
 - Test: `app-serve/internal/compose/build_test.go`
 
 **Interfaces:**
-- Consumes: `googleoidc.New`, `operator.NewRepository`, `auth.NewGoogleService`, `auth.RegisterRoutes`, `auth.Throttle`, `ratelimit.NewWindow`.
+- Consumes: `googleoidc.New`, `operator.NewRepository`, `auth.NewGoogleService`, `auth.RegisterGoogleRoutes`, `auth.RegisterRoutes`, `auth.Throttle`, `ratelimit.NewWindow`.
 - Produces: a wired `App` whose auth routes include Google, whose auth redirect base is `cfg.AppUIBaseURL`, and whose Google routes carry the IP throttle.
 
 - [ ] **Step 1: Write the failing test**
@@ -409,7 +415,7 @@ Add to `build_test.go`: `TestBuild_WiresGoogleLogin` asserts `Build` succeeds wi
 Run: `cd app-serve && go test ./internal/compose/ -run Google -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** the wiring: build one `auth.NewStateStore(client)`, pass it to both services, construct `googleoidc.New`, `operator.NewRepository(pool)`, `auth.NewGoogleService`, set `auth.ServiceConfig.AppUIBaseURL = cfg.AppUIBaseURL`, build the throttle as `auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)` with `googleThrottleMax = 30` and `googleThrottleWindow = time.Minute`, set it on `auth.RouterConfig.Throttle`, and pass the Google service to `auth.RegisterRoutes`.
+- [ ] **Step 3: Implement** the wiring: build one `auth.NewStateStore(client)`, pass it to both services, construct `googleoidc.New`, `operator.NewRepository(pool)`, `auth.NewGoogleService`, set `auth.ServiceConfig.AppUIBaseURL = cfg.AppUIBaseURL`, build the throttle as `auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)` with `googleThrottleMax = 30` and `googleThrottleWindow = time.Minute`, set it on the `auth.RouterConfig` passed to `auth.RegisterGoogleRoutes`, and leave the TikTok `auth.RegisterRoutes` mount as it is.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
