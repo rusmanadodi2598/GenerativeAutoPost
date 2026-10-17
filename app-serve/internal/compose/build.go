@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,10 +41,12 @@ import (
 const idempotencyTTL = 24 * time.Hour
 
 // googleThrottleMax and googleThrottleWindow bound the browser sign in routes
-// per source IP.
+// per source IP. googleJwksTimeout bounds the Google key set fetch so a
+// stalled endpoint cannot hang the verify path.
 const (
 	googleThrottleMax    = 30
 	googleThrottleWindow = time.Minute
+	googleJwksTimeout    = 15 * time.Second
 )
 
 // App is the wired process surface: the engine plus the background workers.
@@ -88,6 +91,7 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		ClientID:     cfg.GoogleClientID,
 		ClientSecret: cfg.GoogleClientSecret,
 		RedirectURI:  cfg.GoogleRedirectURI,
+		HTTPClient:   &http.Client{Timeout: googleJwksTimeout},
 	}), operator.NewRepository(pool), states, sessions, logger)
 	session := operatorSession()
 
@@ -146,15 +150,14 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 	}
 	Mount(engine, Routes{
 		Auth: func(r gin.IRouter) {
-			auth.RegisterRoutes(r, authSvc, sessions,
-				auth.RouterConfig{CookieName: cfg.SessionCookieName, CookieTTL: cfg.SessionTTL})
-			throttle := auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)
-			auth.RegisterGoogleRoutes(r, googleSvc, auth.RouterConfig{
+			base := auth.RouterConfig{
 				CookieName:   cfg.SessionCookieName,
 				CookieTTL:    cfg.SessionTTL,
 				AppUIBaseURL: cfg.AppUIBaseURL,
-				Throttle:     throttle,
-			})
+			}
+			auth.RegisterRoutes(r, authSvc, sessions, base)
+			base.Throttle = auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)
+			auth.RegisterGoogleRoutes(r, googleSvc, base)
 		},
 		Accounts: func(r gin.IRouter) {
 			account.RegisterRoutes(r, account.NewHandler(accounts, session, auth.RequireCSRF()))

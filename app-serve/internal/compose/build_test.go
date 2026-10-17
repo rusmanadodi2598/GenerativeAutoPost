@@ -161,6 +161,26 @@ func TestBuild_WiresGoogleLogin(t *testing.T) {
 	}
 }
 
+// TestBuild_RedirectsTiktokAuthorizeToTheConsoleBase proves the console base
+// reaches the TikTok mount: an unauthenticated authorize hit must leave for
+// the console result page, not the API host.
+func TestBuild_RedirectsTiktokAuthorizeToTheConsoleBase(t *testing.T) {
+	cfg := testConfig(t)
+	app, err := Build(cfg, testPool(t), testRedis(t), nil)
+	if err != nil {
+		t.Fatalf("Build returned %v", err)
+	}
+	rec := httptest.NewRecorder()
+	app.Engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/tiktok/authorize", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("GET /api/v1/auth/tiktok/authorize status = %d, want 302", rec.Code)
+	}
+	want := cfg.AppUIBaseURL + "/auth/result?status=error"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Fatalf("tiktok authorize redirect = %q, want %q", got, want)
+	}
+}
+
 // clientIPFor serves one probe that echoes ClientIP for a peer and forwarded
 // pair, so the trusted proxy setting is observable over HTTP.
 func clientIPFor(t *testing.T, engine *gin.Engine, remoteAddr, forwarded string) string {
