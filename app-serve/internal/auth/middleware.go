@@ -2,7 +2,7 @@
 //
 // @file      internal/auth/middleware.go
 // @for       Gin middleware that loads a session and checks the CSRF token.
-// @uses      crypto/sha256, crypto/subtle, github.com/gin-gonic/gin, internal/apierror
+// @uses      context, crypto/sha256, crypto/subtle, errors, net/http, strconv, log/slog, gin, internal/apierror
 // @reason    Protected routes need a cookie session plus a same origin check.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     handler
@@ -11,9 +11,13 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,6 +29,23 @@ const sessionContextKey = "auth.session"
 
 // csrfHeader carries the double submit token on state changing requests.
 const csrfHeader = "X-CSRF-Token"
+
+// authThrottlePrefix namespaces the auth rate limit apart from every other
+// throttle scope in the same Redis.
+const authThrottlePrefix = "genauto:ratelimit:auth:"
+
+// retryAfterSeconds is the hint a throttled browser backs off by.
+const retryAfterSeconds = 60
+
+// browserResultURL builds the console result page URL for a status. An empty
+// base URL yields the relative path, so a same origin deployment works.
+func browserResultURL(baseURL, status string) string {
+	path := "/auth/result?status=" + status
+	if baseURL == "" {
+		return path
+	}
+	return baseURL + path
+}
 
 // RequireSession loads the cookie session or aborts with a typed error.
 func RequireSession(store *SessionStore, cookieName string) gin.HandlerFunc {
@@ -42,6 +63,61 @@ func RequireSession(store *SessionStore, cookieName string) gin.HandlerFunc {
 			return
 		}
 		c.Set(sessionContextKey, sess)
+		c.Next()
+	}
+}
+
+// RequireSessionRedirect is RequireSession for browser navigated routes: a
+// missing or unreadable session redirects to the result page instead of
+// writing a JSON 401. A valid session is still attached for the handler.
+func RequireSessionRedirect(store *SessionStore, cookieName string, baseURL string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw, err := c.Cookie(cookieName)
+		if err != nil || raw == "" {
+			c.Redirect(http.StatusFound, browserResultURL(baseURL, "error"))
+			c.Abort()
+			return
+		}
+		sess, err := store.Get(c.Request.Context(), raw)
+		if err != nil {
+			c.Redirect(http.StatusFound, browserResultURL(baseURL, "error"))
+			c.Abort()
+			return
+		}
+		c.Set(sessionContextKey, sess)
+		c.Next()
+	}
+}
+
+// IPLimiter is the per-IP window the auth browser routes share.
+type IPLimiter interface {
+	Allow(ctx context.Context, key string) (bool, error)
+}
+
+// Throttle refuses over-budget sources with a 429 before the handler runs. A
+// limiter error fails open: a throttle outage must not lock every operator
+// out, and the allowlist check still guards sign in.
+func Throttle(limiter IPLimiter, logger *slog.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(c *gin.Context) {
+		if limiter == nil {
+			c.Next()
+			return
+		}
+		ok, err := limiter.Allow(c.Request.Context(), authThrottlePrefix+c.ClientIP())
+		if err != nil {
+			logger.WarnContext(c.Request.Context(), "auth throttle unavailable, allowing request", "error", err)
+			c.Next()
+			return
+		}
+		if !ok {
+			logger.WarnContext(c.Request.Context(), "auth route throttled", "ip", c.ClientIP())
+			c.Header("Retry-After", strconv.Itoa(retryAfterSeconds))
+			c.AbortWithStatus(http.StatusTooManyRequests)
+			return
+		}
 		c.Next()
 	}
 }

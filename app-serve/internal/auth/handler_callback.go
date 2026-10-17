@@ -16,19 +16,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Callback completes the sign in, sets the session cookie, and returns the
-// browser to the app. Every branch is a redirect: this route never writes a
-// JSON body, and the upstream error text stays out of the Location header.
+// Callback connects the TikTok account of the signed in operator and returns
+// the browser to the app. Every branch is a redirect: this route never writes
+// a JSON body, and the upstream error text stays out of the Location header.
+// The session cookie is set once by the Google sign in, not here.
 func (h *Handler) Callback(c *gin.Context) {
 	if c.Query("error") != "" || c.Query("code") == "" || c.Query("state") == "" {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
 	}
-	sess, err := h.svc.CompleteCallback(c.Request.Context(), c.Query("code"), c.Query("state"))
-	if err != nil {
+	sess, ok := SessionFrom(c)
+	if !ok {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
 	}
-	h.setSessionCookie(c, sess.ID)
+	if err := h.svc.CompleteCallback(c.Request.Context(), sess.OperatorID, c.Query("code"), c.Query("state")); err != nil {
+		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
+		return
+	}
 	c.Redirect(http.StatusFound, h.svc.CallbackURL("ok"))
 }

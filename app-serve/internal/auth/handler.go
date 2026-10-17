@@ -23,8 +23,9 @@ import (
 
 // HandlerConfig carries the cookie settings the handlers apply.
 type HandlerConfig struct {
-	CookieName string
-	CookieTTL  time.Duration
+	CookieName   string
+	CookieTTL    time.Duration
+	AppUIBaseURL string
 }
 
 // Handler serves the auth HTTP surface over one Service.
@@ -131,7 +132,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	h.setSessionCookie(c, "")
+	writeSessionCookie(c, h.cfg, "")
 	c.Status(http.StatusNoContent)
 }
 
@@ -175,15 +176,15 @@ func (h *Handler) expiresAt(created time.Time) time.Time {
 	return created.Add(h.cfg.CookieTTL)
 }
 
-// setSessionCookie writes the session cookie, or expires it when sessionID is
-// empty. Callback passes the session id; Logout passes the empty string.
-func (h *Handler) setSessionCookie(c *gin.Context, sessionID string) {
-	maxAge := int(h.cfg.CookieTTL / time.Second)
+// writeSessionCookie writes the session cookie, or expires it when sessionID
+// is empty. Callback passes a session id; Logout passes the empty string.
+func writeSessionCookie(c *gin.Context, cfg HandlerConfig, sessionID string) {
+	maxAge := int(cfg.CookieTTL / time.Second)
 	if sessionID == "" {
 		maxAge = -1
 	}
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     h.cfg.CookieName,
+		Name:     cfg.CookieName,
 		Value:    sessionID,
 		Path:     "/",
 		MaxAge:   maxAge,

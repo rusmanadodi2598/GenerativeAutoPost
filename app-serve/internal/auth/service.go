@@ -135,50 +135,24 @@ func (s *Service) CallbackURL(status string) string {
 	return s.cfg.AppUIBaseURL + path
 }
 
-// CompleteCallback consumes the state, exchanges the code, upserts the
-// account, and creates the operator session. A spent or unknown state fails
-// before the code is exchanged, so a replayed callback does no TikTok work.
-func (s *Service) CompleteCallback(ctx context.Context, code, state string) (*Session, error) {
+// CompleteCallback consumes the state, exchanges the code, and upserts the
+// account for the signed in operator. It mints no session: the browser already
+// holds the operator session from the Google sign in. A spent or unknown state
+// fails before the code is exchanged, so a replayed callback does no TikTok work.
+func (s *Service) CompleteCallback(ctx context.Context, operatorID, code, state string) error {
 	if _, err := s.states.Consume(ctx, state); err != nil {
-		return nil, err
+		return err
 	}
 	tokens, err := s.tokens.ExchangeCode(ctx, code)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	granted := splitScopes(tokens.Scope)
-	if _, err := s.accounts.UpsertAccount(ctx, s.cfg.OperatorID, tokens, granted); err != nil {
+	if _, err := s.accounts.UpsertAccount(ctx, operatorID, tokens, granted); err != nil {
 		s.logger.ErrorContext(ctx, "upserting tiktok account after oauth callback", "error", err)
-		return nil, err
+		return err
 	}
-	sess, err := s.newSession(granted)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.sessions.Create(ctx, *sess); err != nil {
-		return nil, err
-	}
-	return sess, nil
-}
-
-// newSession mints a session id, CSRF token, and creation time for the
-// configured operator and the granted scopes.
-func (s *Service) newSession(granted []string) (*Session, error) {
-	id, err := NewSessionID()
-	if err != nil {
-		return nil, errSessionIssue(err)
-	}
-	csrf, err := NewCSRFToken()
-	if err != nil {
-		return nil, errSessionIssue(err)
-	}
-	return &Session{
-		ID:         id,
-		OperatorID: s.cfg.OperatorID,
-		CSRFToken:  csrf,
-		Scopes:     granted,
-		CreatedAt:  time.Now().UTC(),
-	}, nil
+	return nil
 }
 
 // splitScopes turns the comma joined scope string from TikTok into a list,
