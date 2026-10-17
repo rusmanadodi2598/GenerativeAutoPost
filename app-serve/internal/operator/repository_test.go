@@ -55,8 +55,9 @@ func openTestPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// fixture applies the migrations, clears the rows these tests own, and returns
-// a repository over the shared pool.
+// fixture applies the migrations and returns a repository over the shared
+// pool. Each test removes only the ids it creates, so a concurrent package
+// against the same database is never wiped by a table wide delete.
 func fixture(t *testing.T) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -64,18 +65,28 @@ func fixture(t *testing.T) (*Repository, *pgxpool.Pool) {
 	if err := postgres.Up(ctx, pool, migrationsDir); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM users`); err != nil {
-		t.Fatalf("clear users: %v", err)
-	}
 	return NewRepository(pool), pool
+}
+
+// cleanupRow removes one operator row after the test, so the shared database
+// is left as found without a table wide delete.
+func cleanupRow(t *testing.T, pool *pgxpool.Pool, id string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, id); err != nil {
+			t.Logf("cleanup operator row %s: %v", id, err)
+		}
+	})
 }
 
 func TestEnsure_InsertsTheOperatorRow(t *testing.T) {
 	repo, pool := fixture(t)
 	ctx := context.Background()
 	id := uuid.NewString()
+	cleanupRow(t, pool, id)
+	email := id + "@example.com"
 
-	if err := repo.Ensure(ctx, id, "operator@example.com"); err != nil {
+	if err := repo.Ensure(ctx, id, email); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 
@@ -84,8 +95,8 @@ func TestEnsure_InsertsTheOperatorRow(t *testing.T) {
 		Scan(&gotID, &gotEmail); err != nil {
 		t.Fatalf("read operator row: %v", err)
 	}
-	if gotID != id || gotEmail != "operator@example.com" {
-		t.Fatalf("row = (%s, %s), want (%s, operator@example.com)", gotID, gotEmail, id)
+	if gotID != id || gotEmail != email {
+		t.Fatalf("row = (%s, %s), want (%s, %s)", gotID, gotEmail, id, email)
 	}
 }
 
@@ -93,11 +104,14 @@ func TestEnsure_IsIdempotentAndUpdatesEmail(t *testing.T) {
 	repo, pool := fixture(t)
 	ctx := context.Background()
 	id := uuid.NewString()
+	cleanupRow(t, pool, id)
+	first := id + "-first@example.com"
+	second := id + "-second@example.com"
 
-	if err := repo.Ensure(ctx, id, "first@example.com"); err != nil {
+	if err := repo.Ensure(ctx, id, first); err != nil {
 		t.Fatalf("first Ensure: %v", err)
 	}
-	if err := repo.Ensure(ctx, id, "second@example.com"); err != nil {
+	if err := repo.Ensure(ctx, id, second); err != nil {
 		t.Fatalf("second Ensure: %v", err)
 	}
 
@@ -112,7 +126,7 @@ func TestEnsure_IsIdempotentAndUpdatesEmail(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, id).Scan(&email); err != nil {
 		t.Fatalf("read email: %v", err)
 	}
-	if email != "second@example.com" {
+	if email != second {
 		t.Fatalf("email = %q, want the updated address", email)
 	}
 }

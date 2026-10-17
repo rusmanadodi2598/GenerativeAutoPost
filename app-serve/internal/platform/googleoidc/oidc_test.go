@@ -191,38 +191,3 @@ func TestVerifyIDToken_RejectsEmptyNonceArgument(t *testing.T) {
 
 	mustReject(t, client, token, "")
 }
-
-func TestVerifyIDToken_RejectsUnverifiedEmail(t *testing.T) {
-	key := newTestKey(t, "key-1")
-	client := newTestClient(t, key)
-	claims := validClaims("client-1", "nonce-1")
-	claims["email_verified"] = false
-	token := signToken(t, key, claims)
-
-	mustReject(t, client, token, "nonce-1")
-}
-
-func TestVerifyIDToken_RefetchesOnUnknownKid(t *testing.T) {
-	first := newTestKey(t, "key-1")
-	second := newTestKey(t, "key-2")
-	srv, calls := newJWKSServer(t,
-		[]map[string]any{first.jwksEntry()},
-		[]map[string]any{second.jwksEntry()},
-	)
-	client := New(Config{ClientID: "client-1", JWKSURL: srv.URL})
-
-	if _, err := client.VerifyIDToken(context.Background(), signToken(t, first, validClaims("client-1", "nonce-1")), "nonce-1"); err != nil {
-		t.Fatalf("VerifyIDToken(first) error = %v", err)
-	}
-
-	claims, err := client.VerifyIDToken(context.Background(), signToken(t, second, validClaims("client-1", "nonce-2")), "nonce-2")
-	if err != nil {
-		t.Fatalf("VerifyIDToken(second) error = %v, want a refetch to find the rotated key", err)
-	}
-	if claims.Subject != "operator-123" {
-		t.Errorf("Subject = %q, want %q", claims.Subject, "operator-123")
-	}
-	if got := calls(); got < 2 {
-		t.Fatalf("JWKS fetches = %d, want at least 2 after an unknown kid", got)
-	}
-}

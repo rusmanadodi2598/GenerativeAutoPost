@@ -40,7 +40,14 @@ prunes rows older than the retention cutoff after each sweep.
   inside the window.
 - The TikTok upload URL never reaches a client; chunks are proxied server-side.
 - Webhook intake is idempotent per event id, and a duplicate apply is a no-op.
-- Sign in is Google only, and only the email in `OPERATOR_EMAIL` is allowed. TikTok OAuth is a connect step for an operator who already has a session.
+- Sign in is Google only, and only the email in `OPERATOR_EMAIL` is allowed.
+  TikTok OAuth is a connect step for an operator who already has a session.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and
+  `OPERATOR_EMAIL` are required at boot; an existing `.env` must add them
+  before the next deploy. Behind a reverse proxy set `TRUSTED_PROXIES`, or
+  every client shares one auth throttle budget.
+- The operator row in `users` is upserted at sign in, so
+  `tiktok_accounts.user_id` has a parent.
 
 ## Not in this version
 

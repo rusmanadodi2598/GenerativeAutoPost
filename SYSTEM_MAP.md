@@ -128,7 +128,7 @@ pairs live in `migrations/`.
 
 | Table | Migration | Notes |
 |---|---|---|
-| `users` | 000001, 000009 | Operator accounts, upserted on first Google sign in |
+| `users` | 000001, 000009 | Operator accounts, upserted at Google sign in |
 | `sessions` | 000001 | Declared for audit; sessions actually live in Redis |
 | `tiktok_accounts` | 000001, 000004 | Token columns are ciphertext plus `key_id`; `needs_reauth` |
 | `publish_attempts` | 000001, 000006, 000008 | `reconcile_failures`, nullable `media_id` |
@@ -231,10 +231,11 @@ Google's JWKS -> allowlist check on the `email_verified` email against
 `OPERATOR_EMAIL` -> `users` row upserted -> session id set in an `HttpOnly`,
 `Secure`, `SameSite=Lax` cookie.
 
-**TikTok account connect.** requires the session -> state bound to the
-issuing operator -> code exchanged -> token encrypted with the keyring ->
-account upserted -> no cookie written. Ownership is checked before any
-account-scoped read or write; a foreign id answers `404`.
+**TikTok account connect.** Requires the session -> authorize binds the
+`state` to the browser session that issued it -> callback spends `state` and
+rejects a state from another session -> code exchanged -> token encrypted with
+the keyring -> account upserted -> no cookie written. Ownership is checked
+before any account-scoped read or write; a foreign id answers `404`.
 
 **Direct post, video or photo.** Client sends the init body with an optional
 `Idempotency-Key`. Ownership and privacy options are resolved, the init is

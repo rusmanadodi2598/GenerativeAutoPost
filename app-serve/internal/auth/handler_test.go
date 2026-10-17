@@ -41,6 +41,7 @@ type httpHarness struct {
 	sessions  *SessionStore
 	accounts  *fakeUpserter
 	refresher *fakeRefresher
+	sess      Session
 }
 
 // newHTTPHarness wires one service behind a real Gin router.
@@ -63,7 +64,6 @@ func newHTTPHarness(t *testing.T) *httpHarness {
 		ClientKey:   testClientKey,
 		RedirectURI: testRedirectURI,
 		Scopes:      testScopes,
-		OperatorID:  testOperatorID,
 	}
 	svc := NewService(cfg, exchanger, refresher, upserter, states, sessions, newFakeLocker(), logger)
 	router := gin.New()

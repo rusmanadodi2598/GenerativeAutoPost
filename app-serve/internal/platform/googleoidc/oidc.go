@@ -30,6 +30,14 @@ const (
 	defaultJWKSURL  = "https://www.googleapis.com/oauth2/v3/certs"
 )
 
+// RequestTimeout bounds every outbound call this package makes. It is exported
+// so the composition root uses the same value instead of a second constant.
+const RequestTimeout = 15 * time.Second
+
+// clockSkew is the leeway allowed on the exp and iat checks. A host clock a few
+// seconds off would otherwise reject fresh tokens and lock the only login out.
+const clockSkew = 60 * time.Second
+
 // Config carries the OAuth client credentials and the injectable endpoints.
 type Config struct {
 	ClientID     string
@@ -68,7 +76,7 @@ func New(cfg Config) *Client {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = &http.Client{Timeout: RequestTimeout}
 	}
 	return &Client{
 		cfg:        cfg,
@@ -108,7 +116,7 @@ func (c *Client) VerifyIDToken(ctx context.Context, raw string, nonce string) (C
 		return Claims{}, err
 	}
 	if header.Alg != "RS256" {
-		return Claims{}, fmt.Errorf("googleoidc: unsupported token algorithm %q", header.Alg)
+		return Claims{}, fmt.Errorf("googleoidc: unsupported token algorithm")
 	}
 	if header.Kid == "" {
 		return Claims{}, fmt.Errorf("googleoidc: token header carries no key id")
@@ -183,10 +191,10 @@ func (c *Client) checkClaims(claims idTokenClaims, nonce string) error {
 		return fmt.Errorf("googleoidc: token audience does not match this client")
 	}
 	now := time.Now()
-	if claims.ExpiresAt <= now.Unix() {
+	if claims.ExpiresAt <= now.Add(-clockSkew).Unix() {
 		return fmt.Errorf("googleoidc: token has expired")
 	}
-	if claims.IssuedAt > now.Unix() {
+	if claims.IssuedAt > now.Add(clockSkew).Unix() {
 		return fmt.Errorf("googleoidc: token issued in the future")
 	}
 	if claims.Nonce != nonce {

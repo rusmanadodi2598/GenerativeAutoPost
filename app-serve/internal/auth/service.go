@@ -2,7 +2,7 @@
 //
 // @file      internal/auth/service.go
 // @for       TikTok OAuth authorize URL and callback exchange.
-// @uses      context, log/slog, net/url, strings, time, internal/apierror, internal/tiktokclient
+// @uses      context, crypto/sha256, encoding/hex, log/slog, net/url, strings, time, internal/apierror, internal/tiktokclient
 // @reason    One place turns a browser redirect into an operator session.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
@@ -12,6 +12,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -56,7 +58,6 @@ type ServiceConfig struct {
 	RedirectURI  string
 	Scopes       string
 	AppUIBaseURL string
-	OperatorID   string
 	LockTTL      time.Duration
 }
 
@@ -105,14 +106,24 @@ func errSessionIssue(cause error) *apierror.Error {
 	return apierror.New(apierror.CodeInternal, 0, "Could not start a session. Try again.").Wrap(cause)
 }
 
-// AuthorizeURL issues a single use state bound to the operator and builds the
-// TikTok redirect; empty requestedScopes falls back to the configured set.
-func (s *Service) AuthorizeURL(ctx context.Context, operatorID, requestedScopes string) (string, error) {
+// sessionBinding derives the per browser value the OAuth state binds to. The
+// operator id is identical for every session in the single operator model, so
+// it cannot tell two browsers apart; the session id can. Hashing keeps the raw
+// session id out of the state store.
+func sessionBinding(sessionID string) string {
+	sum := sha256.Sum256([]byte(sessionID))
+	return hex.EncodeToString(sum[:])
+}
+
+// AuthorizeURL issues a single use state bound to the browser session and
+// builds the TikTok redirect; empty requestedScopes falls back to the
+// configured set.
+func (s *Service) AuthorizeURL(ctx context.Context, sessionID, requestedScopes string) (string, error) {
 	scopes := requestedScopes
 	if scopes == "" {
 		scopes = s.cfg.Scopes
 	}
-	state, err := s.states.Issue(ctx, operatorID)
+	state, err := s.states.Issue(ctx, sessionBinding(sessionID))
 	if err != nil {
 		return "", err
 	}
@@ -135,15 +146,15 @@ func (s *Service) CallbackURL(status string) string {
 	return s.cfg.AppUIBaseURL + path
 }
 
-// CompleteCallback proves the state was issued to the signed in operator,
-// then exchanges the code and upserts the account for that operator. A foreign
-// or spent state fails before the exchange, and no session is minted here.
-func (s *Service) CompleteCallback(ctx context.Context, operatorID, code, state string) error {
-	issuer, err := s.states.Consume(ctx, state)
+// CompleteCallback proves the state was issued to this browser session, then
+// exchanges the code and upserts the account for that operator. A foreign or
+// spent state fails before the exchange, and no session is minted here.
+func (s *Service) CompleteCallback(ctx context.Context, operatorID, sessionID, code, state string) error {
+	issuedTo, err := s.states.Consume(ctx, state)
 	if err != nil {
 		return err
 	}
-	if issuer != operatorID {
+	if issuedTo != sessionBinding(sessionID) {
 		return errStateUnauthorized
 	}
 	tokens, err := s.tokens.ExchangeCode(ctx, code)

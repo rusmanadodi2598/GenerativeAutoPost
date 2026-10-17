@@ -18,22 +18,31 @@ import (
 	"testing"
 )
 
-// callbackState issues one authorize URL for the test operator and returns
-// its OAuth state.
+// callbackState issues one authorize URL bound to the harness session and
+// returns its OAuth state, so the state and the callback share one browser.
 func (h *httpHarness) callbackState(t *testing.T) string {
 	t.Helper()
-	raw, err := h.svc.AuthorizeURL(t.Context(), testOperatorID, "user.info.basic")
+	raw, err := h.svc.AuthorizeURL(t.Context(), h.session(t).ID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}
 	return stateFromURL(t, raw)
 }
 
-// signedIn attaches the cookie of a freshly created operator session.
+// session returns the harness browser session, created on first use so the
+// authorize state and the callback cookie name the same browser.
+func (h *httpHarness) session(t *testing.T) Session {
+	t.Helper()
+	if h.sess.ID == "" {
+		h.sess = h.createSession(t)
+	}
+	return h.sess
+}
+
+// signedIn attaches the cookie of the harness operator session.
 func (h *httpHarness) signedIn(t *testing.T, req *http.Request) *http.Request {
 	t.Helper()
-	sess := h.createSession(t)
-	req.AddCookie(&http.Cookie{Name: constCookie, Value: sess.ID})
+	req.AddCookie(&http.Cookie{Name: constCookie, Value: h.session(t).ID})
 	return req
 }
 

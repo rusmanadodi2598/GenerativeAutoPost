@@ -62,7 +62,7 @@ func (c *Client) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, err
 	if key, ok := c.cachedKey(kid); ok {
 		return key, nil
 	}
-	return nil, fmt.Errorf("googleoidc: signing key %q not found", kid)
+	return nil, fmt.Errorf("googleoidc: signing key not found")
 }
 
 // cachedKey reads a fresh key without going near the fetch lock.

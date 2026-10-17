@@ -14,7 +14,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,13 +39,12 @@ import (
 // idempotencyTTL matches the 003 section 10 retention window.
 const idempotencyTTL = 24 * time.Hour
 
-// googleThrottleMax and googleThrottleWindow bound the browser sign in routes
-// per source IP. googleJwksTimeout bounds the Google key set fetch so a
-// stalled endpoint cannot hang the verify path.
+// googleThrottleMax and googleThrottleWindow bound the Google browser sign in
+// routes per source IP. The TikTok connect routes are deliberately not
+// throttled: they already sit behind a session.
 const (
 	googleThrottleMax    = 30
 	googleThrottleWindow = time.Minute
-	googleJwksTimeout    = 15 * time.Second
 )
 
 // App is the wired process surface: the engine plus the background workers.
@@ -91,7 +89,6 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		ClientID:     cfg.GoogleClientID,
 		ClientSecret: cfg.GoogleClientSecret,
 		RedirectURI:  cfg.GoogleRedirectURI,
-		HTTPClient:   &http.Client{Timeout: googleJwksTimeout},
 	}), operator.NewRepository(pool), states, sessions, logger)
 	session := operatorSession()
 

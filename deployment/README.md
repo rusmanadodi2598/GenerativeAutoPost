@@ -11,11 +11,28 @@ Local and server wiring for the GenerativeAutoPost stack.
   blocks; paste the `server` blocks into the host's `nginx.conf` `http` block.
 - `../app-serve/Dockerfile`: multi-stage build, static Go binary on Alpine.
 
+## Required environment
+
+`app-serve` refuses to boot without its required keys. Besides the database,
+Redis, and TikTok values, a sign in needs `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `OPERATOR_EMAIL`; an existing
+`app-serve/.env` predating the Google login must add them before the next up.
+
+## Behind the proxy
+
+`nginx` sets `X-Forwarded-For`. Set `TRUSTED_PROXIES` to the address `nginx`
+proxies from (the host gateway, for example `172.17.0.1`), or every request
+reaches app-serve from one peer and all clients share one rate limit budget.
+Leaving it empty is safe but coarse: `ClientIP` falls back to that peer, so a
+single abusive caller can exhaust the shared auth throttle.
+
 ## Run locally
 
 ```bash
 cp ../app-serve/.env.example ../app-serve/.env
-# Fill GENAUTO_DB_PASSWORD and the TikTok credentials in ../app-serve/.env.
+# Fill GENAUTO_DB_PASSWORD, the TikTok credentials, and the four Google login
+# keys (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI,
+# OPERATOR_EMAIL) in ../app-serve/.env.
 GENAUTO_DB_PASSWORD=local-only-secret docker-compose config
 GENAUTO_DB_PASSWORD=local-only-secret docker-compose up --build
 curl http://localhost:8080/healthz

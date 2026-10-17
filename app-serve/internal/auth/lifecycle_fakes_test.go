@@ -226,7 +226,6 @@ func newLifecycleService(t *testing.T, refresher TokenRefresher, accounts Accoun
 		ClientKey:   testClientKey,
 		RedirectURI: testRedirectURI,
 		Scopes:      testScopes,
-		OperatorID:  testOperatorID,
 	}
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))

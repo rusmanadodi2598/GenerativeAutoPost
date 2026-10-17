@@ -2,7 +2,7 @@
 //
 // @file      internal/platform/googleoidc/exchange.go
 // @for       Build the Google authorize URL and trade a code for the id token.
-// @uses      net/http, net/url, encoding/json, context, time
+// @uses      net/http, net/url, encoding/json, context
 // @reason    Login needs the consent redirect and the code-to-token round trip.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     repository
@@ -18,11 +18,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // exchangeTimeout bounds one token exchange, derived from the caller context.
-const exchangeTimeout = 15 * time.Second
+// It mirrors RequestTimeout so the client and the exchange share one budget.
+const exchangeTimeout = RequestTimeout
 
 // tokenBodyCap caps the token response read; a token response is a few KB.
 const tokenBodyCap = 1 << 20

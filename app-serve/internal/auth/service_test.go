@@ -28,6 +28,9 @@ const (
 	testRedirectURI = "https://app.example.com/api/v1/auth/tiktok/callback"
 	testScopes      = "user.info.basic,video.publish"
 	testOperatorID  = "op-1"
+	// testSessionBound is the session id the service tests bind state to. It is
+	// never an operator id, so a mixup cannot pass the binding checks.
+	testSessionBound = "sess-bound-1"
 )
 
 // harness bundles a service with the stores its tests inspect.
@@ -48,7 +51,6 @@ func newHarness(t *testing.T, tokens TokenExchanger, accounts AccountUpserter) *
 		ClientKey:   testClientKey,
 		RedirectURI: testRedirectURI,
 		Scopes:      testScopes,
-		OperatorID:  testOperatorID,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &harness{
@@ -69,10 +71,10 @@ func stateFromURL(t *testing.T, raw string) string {
 	return parsed.Query().Get("state")
 }
 
-// issueState runs one authorize call for operatorID and returns the state it stored.
-func issueState(t *testing.T, svc *Service, operatorID string) string {
+// issueState runs one authorize call for sessionID and returns the state it stored.
+func issueState(t *testing.T, svc *Service, sessionID string) string {
 	t.Helper()
-	raw, err := svc.AuthorizeURL(context.Background(), operatorID, "user.info.basic")
+	raw, err := svc.AuthorizeURL(context.Background(), sessionID, "user.info.basic")
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}
@@ -103,7 +105,7 @@ func TestServiceAuthorizeURL(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, &fakeExchanger{}, &fakeUpserter{})
-			raw, err := h.svc.AuthorizeURL(context.Background(), testOperatorID, tc.requested)
+			raw, err := h.svc.AuthorizeURL(context.Background(), testSessionBound, tc.requested)
 			if err != nil {
 				t.Fatalf("AuthorizeURL: %v", err)
 			}
@@ -140,11 +142,11 @@ func TestServiceAuthorizeURL(t *testing.T) {
 func TestServiceAuthorizeURLIssuesDistinctStates(t *testing.T) {
 	h := newHarness(t, &fakeExchanger{}, &fakeUpserter{})
 	ctx := context.Background()
-	first, err := h.svc.AuthorizeURL(ctx, testOperatorID, "user.info.basic")
+	first, err := h.svc.AuthorizeURL(ctx, testSessionBound, "user.info.basic")
 	if err != nil {
 		t.Fatalf("first AuthorizeURL: %v", err)
 	}
-	second, err := h.svc.AuthorizeURL(ctx, testOperatorID, "user.info.basic")
+	second, err := h.svc.AuthorizeURL(ctx, testSessionBound, "user.info.basic")
 	if err != nil {
 		t.Fatalf("second AuthorizeURL: %v", err)
 	}
@@ -154,12 +156,34 @@ func TestServiceAuthorizeURLIssuesDistinctStates(t *testing.T) {
 		t.Fatal("two authorize calls issued the same state")
 	}
 	for _, state := range []string{stateOne, stateTwo} {
-		issuer, err := h.states.Consume(ctx, state)
+		payload, err := h.states.Consume(ctx, state)
 		if err != nil {
 			t.Fatalf("consuming issued state: %v", err)
 		}
-		if issuer != testOperatorID {
-			t.Fatalf("stored issuer = %q, want %q", issuer, testOperatorID)
+		if payload != sessionBinding(testSessionBound) {
+			t.Fatalf("stored payload = %q, want the session binding %q", payload, sessionBinding(testSessionBound))
 		}
+	}
+}
+
+// TestServiceAuthorizeURLPayloadIsNotTheOperator proves the state payload
+// carries the browser binding, so it can tell two sessions of one operator
+// apart. The operator id is identical for every session in this model.
+func TestServiceAuthorizeURLPayloadIsNotTheOperator(t *testing.T) {
+	h := newHarness(t, &fakeExchanger{}, &fakeUpserter{})
+	ctx := context.Background()
+	raw, err := h.svc.AuthorizeURL(ctx, "sess-browser-1", "user.info.basic")
+	if err != nil {
+		t.Fatalf("AuthorizeURL: %v", err)
+	}
+	payload, err := h.states.Consume(ctx, stateFromURL(t, raw))
+	if err != nil {
+		t.Fatalf("consuming issued state: %v", err)
+	}
+	if payload == testOperatorID {
+		t.Fatal("state payload is the operator id; a connect-CSRF pair would validate for any session")
+	}
+	if payload != sessionBinding("sess-browser-1") {
+		t.Fatalf("stored payload = %q, want the session binding", payload)
 	}
 }

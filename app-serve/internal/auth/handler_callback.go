@@ -24,7 +24,7 @@ func (h *Handler) Authorize(c *gin.Context) {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
 	}
-	url, err := h.svc.AuthorizeURL(c.Request.Context(), sess.OperatorID, c.Query("scope"))
+	url, err := h.svc.AuthorizeURL(c.Request.Context(), sess.ID, c.Query("scope"))
 	if err != nil {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
@@ -46,7 +46,7 @@ func (h *Handler) Callback(c *gin.Context) {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
 	}
-	if err := h.svc.CompleteCallback(c.Request.Context(), sess.OperatorID, c.Query("code"), c.Query("state")); err != nil {
+	if err := h.svc.CompleteCallback(c.Request.Context(), sess.OperatorID, sess.ID, c.Query("code"), c.Query("state")); err != nil {
 		c.Redirect(http.StatusFound, h.svc.CallbackURL("error"))
 		return
 	}

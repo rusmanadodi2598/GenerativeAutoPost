@@ -3,7 +3,7 @@
 // @file      internal/auth/state.go
 // @for       Single use OAuth state values stored in Redis.
 // @uses      context, crypto/rand, encoding/base64, redis/go-redis/v9, internal/apierror, internal/platform/redisx
-// @reason    The TikTok callback needs a replay proof bound to the browser.
+// @reason    Every OAuth callback needs a replay proof bound to one browser.
 // @author    Dodi Rusmana <rusmanadodi@kentangtech.com>
 // @layer     service
 // @stability stable
@@ -66,14 +66,14 @@ func (s *StateStore) Consume(ctx context.Context, state string) (string, error) 
 	if state == "" {
 		return "", errStateUnauthorized
 	}
-	scopes, err := s.client.GetDel(ctx, redisx.KeyOAuthState+state).Result()
+	payload, err := s.client.GetDel(ctx, redisx.KeyOAuthState+state).Result()
 	if errors.Is(err, redis.Nil) {
 		return "", errStateUnauthorized
 	}
 	if err != nil {
 		return "", errStateUnavailable(err)
 	}
-	return scopes, nil
+	return payload, nil
 }
 
 // randomToken returns 32 random bytes as base64url without padding.
