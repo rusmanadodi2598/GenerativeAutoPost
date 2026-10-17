@@ -15,12 +15,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/auth"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/config"
 )
 
@@ -61,7 +63,9 @@ func testConfig(t *testing.T) config.Config {
 		"TOKEN_ENC_KEY":        strings.Repeat("k", 32), "TOKEN_ENC_KEY_ID": "k1",
 		"OPERATOR_ID":  "0191e2c4-0000-7000-8000-000000000001",
 		"MEDIA_DRIVER": "disk", "MEDIA_ROOT": t.TempDir(),
-		"SESSION_TTL": "24h", "LOG_LEVEL": "info",
+		"APP_UI_BASE_URL":       "https://console.example.com",
+		"MEDIA_PUBLIC_BASE_URL": "https://media.example.com",
+		"SESSION_TTL":           "24h", "LOG_LEVEL": "info",
 	} {
 		t.Setenv(k, v)
 	}
@@ -121,6 +125,39 @@ func TestBuildTrustsConfiguredProxy(t *testing.T) {
 	}
 	if got := clientIPFor(t, app.Engine, "198.51.100.1:5000", "203.0.113.9"); got != "203.0.113.9" {
 		t.Fatalf("ClientIP = %q, want the forwarded address", got)
+	}
+}
+
+// TestBuild_WiresGoogleLogin proves the Google routes are mounted and the auth
+// service redirects to the console base, not the media host.
+func TestBuild_WiresGoogleLogin(t *testing.T) {
+	cfg := testConfig(t)
+	client := testRedis(t)
+	app, err := Build(cfg, testPool(t), client, nil)
+	if err != nil {
+		t.Fatalf("Build returned %v", err)
+	}
+	rec := httptest.NewRecorder()
+	app.Engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/auth/google/authorize", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("GET /api/v1/auth/google/authorize status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "https://accounts.google.com/") {
+		t.Fatalf("google authorize redirect = %q, want the google consent page", loc)
+	}
+
+	sessions := auth.NewSessionStore(client, cfg.SessionTTL)
+	sess := auth.Session{ID: "wired-session", OperatorID: cfg.OperatorID, CSRFToken: "csrf", CreatedAt: time.Now().UTC()}
+	if err := sessions.Create(t.Context(), sess); err != nil {
+		t.Fatalf("seeding session: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tiktok/callback?error=denied", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.SessionCookieName, Value: sess.ID})
+	app.Engine.ServeHTTP(rec, req)
+	want := cfg.AppUIBaseURL + "/auth/result?status=error"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Fatalf("tiktok callback redirect = %q, want %q", got, want)
 	}
 }
 

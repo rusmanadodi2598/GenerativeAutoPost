@@ -25,7 +25,9 @@ import (
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/config"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/insight"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/media"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/operator"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/crypto"
+	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/googleoidc"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/httpapi"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/idempotency"
 	"github.com/kentangtech/GenerativeAutoPost/app-serve/internal/platform/ratelimit"
@@ -36,6 +38,13 @@ import (
 
 // idempotencyTTL matches the 003 section 10 retention window.
 const idempotencyTTL = 24 * time.Hour
+
+// googleThrottleMax and googleThrottleWindow bound the browser sign in routes
+// per source IP.
+const (
+	googleThrottleMax    = 30
+	googleThrottleWindow = time.Minute
+)
 
 // App is the wired process surface: the engine plus the background workers.
 type App struct {
@@ -64,14 +73,22 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 	limiter := tiktokclient.NewLimiter(client, logger)
 	accounts := account.NewService(account.NewRepository(pool), keyring, cfg.TokenEncKeyID, logger)
 	sessions := auth.NewSessionStore(client, cfg.SessionTTL)
+	states := auth.NewStateStore(client)
 	authSvc := auth.NewService(auth.ServiceConfig{
 		ClientKey:    cfg.TikTokClientKey,
 		RedirectURI:  cfg.TikTokRedirectURI,
 		Scopes:       cfg.TikTokScopes,
-		AppUIBaseURL: cfg.MediaPublicBaseURL,
-		OperatorID:   cfg.OperatorID,
-	}, tiktok, tiktok, accounts, auth.NewStateStore(client), sessions,
+		AppUIBaseURL: cfg.AppUIBaseURL,
+	}, tiktok, tiktok, accounts, states, sessions,
 		auth.NewRedisLocker(client), logger)
+	googleSvc := auth.NewGoogleService(auth.GoogleConfig{
+		OperatorID:    cfg.OperatorID,
+		OperatorEmail: cfg.OperatorEmail,
+	}, googleoidc.New(googleoidc.Config{
+		ClientID:     cfg.GoogleClientID,
+		ClientSecret: cfg.GoogleClientSecret,
+		RedirectURI:  cfg.GoogleRedirectURI,
+	}), operator.NewRepository(pool), states, sessions, logger)
 	session := operatorSession()
 
 	attempts := publish.NewRepository(pool)
@@ -131,6 +148,13 @@ func Build(cfg config.Config, pool *pgxpool.Pool, client *redis.Client, logger *
 		Auth: func(r gin.IRouter) {
 			auth.RegisterRoutes(r, authSvc, sessions,
 				auth.RouterConfig{CookieName: cfg.SessionCookieName, CookieTTL: cfg.SessionTTL})
+			throttle := auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)
+			auth.RegisterGoogleRoutes(r, googleSvc, auth.RouterConfig{
+				CookieName:   cfg.SessionCookieName,
+				CookieTTL:    cfg.SessionTTL,
+				AppUIBaseURL: cfg.AppUIBaseURL,
+				Throttle:     throttle,
+			})
 		},
 		Accounts: func(r gin.IRouter) {
 			account.RegisterRoutes(r, account.NewHandler(accounts, session, auth.RequireCSRF()))
