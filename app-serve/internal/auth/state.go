@@ -45,22 +45,23 @@ func NewStateStore(client *redis.Client) *StateStore {
 	return &StateStore{client: client}
 }
 
-// Issue mints a random state bound to the requested scopes and stores it.
-func (s *StateStore) Issue(ctx context.Context, requestedScopes string) (string, error) {
-	if requestedScopes == "" {
-		return "", apierror.New(apierror.CodeValidationFailed, 0, "At least one scope is required.")
+// Issue mints a random state bound to payload and stores it. The payload is
+// opaque to the store: TikTok puts the requested scopes there, Google a nonce.
+func (s *StateStore) Issue(ctx context.Context, payload string) (string, error) {
+	if payload == "" {
+		return "", apierror.New(apierror.CodeValidationFailed, 0, "The authorization request is missing its payload.")
 	}
 	state, err := randomToken()
 	if err != nil {
 		return "", errStateUnavailable(err)
 	}
-	if err := s.client.Set(ctx, redisx.KeyOAuthState+state, requestedScopes, stateTTL).Err(); err != nil {
+	if err := s.client.Set(ctx, redisx.KeyOAuthState+state, payload, stateTTL).Err(); err != nil {
 		return "", errStateUnavailable(err)
 	}
 	return state, nil
 }
 
-// Consume atomically reads and deletes the state, returning its scopes.
+// Consume atomically reads and deletes the state, returning its payload.
 func (s *StateStore) Consume(ctx context.Context, state string) (string, error) {
 	if state == "" {
 		return "", errStateUnauthorized

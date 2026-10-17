@@ -110,3 +110,23 @@ func NewSessionID() (string, error) {
 func NewCSRFToken() (string, error) {
 	return randomToken()
 }
+
+// mintSession mints a session id, CSRF token, and creation time for one
+// operator and its granted scopes.
+func mintSession(operatorID string, scopes []string) (*Session, error) {
+	id, err := NewSessionID()
+	if err != nil {
+		return nil, errSessionIssue(err)
+	}
+	csrf, err := NewCSRFToken()
+	if err != nil {
+		return nil, errSessionIssue(err)
+	}
+	return &Session{
+		ID:         id,
+		OperatorID: operatorID,
+		CSRFToken:  csrf,
+		Scopes:     scopes,
+		CreatedAt:  time.Now().UTC(),
+	}, nil
+}
