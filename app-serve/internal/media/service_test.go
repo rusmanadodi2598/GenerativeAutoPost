@@ -28,7 +28,7 @@ func newTestService(t *testing.T) *Service {
 		MaxBytes:      1024,
 		MaxDurationMs: 60_000,
 		AllowedTypes:  []string{"video/mp4", "image/jpeg"},
-		PublicBaseURL: "https://app-tiktok.kentangtech.com",
+		PublicBaseURL: "https://app-post.kentangtech.com",
 	}, slog.New(slog.DiscardHandler))
 }
 
@@ -132,7 +132,7 @@ func TestPullFromURLRejectsNonHTTPScheme(t *testing.T) {
 
 	for _, raw := range []string{
 		"file:///etc/passwd",
-		"ftp://app-tiktok.kentangtech.com/video.mp4",
+		"ftp://app-post.kentangtech.com/video.mp4",
 	} {
 		if err := svc.PullFromURL(context.Background(), raw); err == nil {
 			t.Errorf("%q was accepted, want rejection", raw)
@@ -145,7 +145,7 @@ func TestPullFromURLRejectsSuffixLookalikeHost(t *testing.T) {
 
 	// A host that merely ends with the base domain is a different origin.
 	err := svc.PullFromURL(context.Background(),
-		"https://evilapp-tiktok.kentangtech.com.attacker.test/video.mp4")
+		"https://evilapp-post.kentangtech.com.attacker.test/video.mp4")
 
 	if err == nil {
 		t.Fatal("expected a rejection for a suffix lookalike host")
@@ -164,7 +164,7 @@ func TestPullFromURLAcceptsVerifiedHost(t *testing.T) {
 	svc := newTestService(t)
 
 	if err := svc.PullFromURL(context.Background(),
-		"https://app-tiktok.kentangtech.com/media/video.mp4"); err != nil {
+		"https://app-post.kentangtech.com/media/video.mp4"); err != nil {
 		t.Errorf("verified host rejected: %v", err)
 	}
 }

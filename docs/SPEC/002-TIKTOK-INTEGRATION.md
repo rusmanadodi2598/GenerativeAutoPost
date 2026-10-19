@@ -200,7 +200,7 @@ This endpoint is the polling fallback. Primary state comes from webhooks (see 5)
 
 ### 5.1 Registration
 
-The callback URL is set in the Developer Portal for the app: `https://app-tiktok.kentangtech.com/webhooks/tiktok`. It must use HTTPS, return `200` immediately, and TikTok retries for up to 72 hours with exponential backoff. Delivery is at least once, so duplicates are normal.
+The callback URL is set in the Developer Portal for the app: `https://app-post.kentangtech.com/webhooks/tiktok`. It must use HTTPS, return `200` immediately, and TikTok retries for up to 72 hours with exponential backoff. Delivery is at least once, so duplicates are normal.
 
 ### 5.2 Signature verification
 

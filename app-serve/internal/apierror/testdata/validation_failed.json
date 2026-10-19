@@ -1,5 +1,5 @@
 {
-  "type": "https://app-tiktok.kentangtech.com/problems/validation-failed",
+  "type": "https://app-post.kentangtech.com/problems/validation-failed",
   "title": "Validation failed",
   "status": 422,
   "detail": "title: max 2200 UTF-16 runes; privacy_level: required",

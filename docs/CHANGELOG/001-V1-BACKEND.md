@@ -48,6 +48,10 @@ prunes rows older than the retention cutoff after each sweep.
   every client shares one auth throttle budget.
 - The operator row in `users` is upserted at sign in, so
   `tiktok_accounts.user_id` has a parent.
+- The public host is `app-post.kentangtech.com`, recorded in
+  `docs/DECISIONS/004`. It is the RFC 9457 `type` URI base and the Nginx
+  `server_name`, so the TikTok webhook callback and the Google redirect URI
+  are registered against it.
 
 ## Not in this version
 

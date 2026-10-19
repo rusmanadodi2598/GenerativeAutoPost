@@ -42,7 +42,7 @@ const (
 )
 
 // ProblemBase hosts stable type URIs under our own domain.
-const ProblemBase = "https://app-tiktok.kentangtech.com/problems/"
+const ProblemBase = "https://app-post.kentangtech.com/problems/"
 
 // catalogEntry maps one code to its HTTP status, title, and type slug.
 type catalogEntry struct {

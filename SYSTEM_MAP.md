@@ -7,9 +7,10 @@ map, say so in the change description; "N/A, no structural change" is an
 acceptable answer and a missing answer is not.
 
 - **Service in this map:** `app-serve` (Go, the only service with code today).
-- **Last reviewed:** 2026-10-16, `docs/DECISIONS/002` (upload idempotency,
-  stats series, R2 object client) and `docs/DECISIONS/003` (stats retention
-  and refresh worker).
+- **Last reviewed:** 2026-10-18, against `HEAD` after the operator Google
+  login. Covers `docs/DECISIONS/001` to `004`: scope v1, upload idempotency
+  with the R2 client and stats series, stats retention and the refresh
+  worker, and the public host `app-post.kentangtech.com`.
 - **Specs this map summarises:** `docs/SPEC/001-BACKEND-ARCHITECTURE.md`,
   `002-TIKTOK-INTEGRATION.md`, `003-API-CONTRACT.md`.
 
@@ -19,7 +20,7 @@ acceptable answer and a missing answer is not.
 
 ```
                     ┌──────────────────────────────┐
-  browser ──TLS──►  │ nginx (app-tiktok.kentangtech)│
+  browser ──TLS──►  │ nginx (app-post.kentangtech) │
                     └───────┬──────────────┬────────┘
                             │ /            │ /api/v1
                             ▼              ▼
@@ -38,7 +39,7 @@ acceptable answer and a missing answer is not.
 | app-ui | none yet | `app-ui/` holds only `.env.example`; nginx upstream 502s until it lands |
 | PostgreSQL | `postgres:17` | `deployment/docker-compose.yml` |
 | Redis | `redis:7` | Sessions, rate limits, idempotency, dedupe, event stream |
-| nginx | `deployment/nginx/app-tiktok.conf` | TLS edge, `/api/v1` proxy, `/webhooks/tiktok` bypasses versioning |
+| nginx | `deployment/nginx/app-post.conf` | TLS edge, `/api/v1` proxy, `/webhooks/tiktok` bypasses versioning |
 | Cloudflare R2 | `internal/platform/r2` | SigV4 signed; `MEDIA_DRIVER=s3` proves credentials with a write probe at boot |
 
 `/webhooks/tiktok` is mounted outside `/api/v1` on purpose: it is TikTok's

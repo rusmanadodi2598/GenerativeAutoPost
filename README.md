@@ -44,6 +44,6 @@ See [`deployment/README.md`](deployment/README.md) for the nginx edge config.
 
 ## Webhooks
 
-Webhook callbacks are served from `https://app-tiktok.kentangtech.com/webhooks/tiktok`,
+Webhook callbacks are served from `https://app-post.kentangtech.com/webhooks/tiktok`,
 outside the `/api/v1` version prefix. Replace the host in
-`deployment/nginx/app-tiktok.conf` if it moves.
+`deployment/nginx/app-post.conf` if it moves.

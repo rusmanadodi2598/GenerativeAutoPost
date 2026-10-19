@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-12
 - **Depends on:** `001-BACKEND-ARCHITECTURE.md`, `002-TIKTOK-INTEGRATION.md`
-- **Base URL:** `https://app-tiktok.kentangtech.com/api/v1`
+- **Base URL:** `https://app-post.kentangtech.com/api/v1`
 
 ## 1. Conventions
 
@@ -56,7 +56,7 @@ Paginated lists carry their cursor in `data`, not in `meta`. The video list retu
 
 ```json
 {
-  "type": "https://app-tiktok.kentangtech.com/problems/publish-privacy-mismatch",
+  "type": "https://app-post.kentangtech.com/problems/publish-privacy-mismatch",
   "title": "Privacy level rejected",
   "status": 422,
   "detail": "The selected privacy level is not available for this account.",
@@ -96,7 +96,7 @@ Example development body for a validation failure:
 
 ```json
 {
-  "type": "https://app-tiktok.kentangtech.com/problems/validation-failed",
+  "type": "https://app-post.kentangtech.com/problems/validation-failed",
   "title": "Validation failed",
   "status": 422,
   "detail": "title: max 2200 UTF-16 runes; privacy_level: required",

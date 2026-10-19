@@ -133,7 +133,7 @@ One error type crosses the wire, defined in `apierror`, serialized as RFC 9457 `
 
 ```json
 {
-  "type": "https://app-tiktok.kentangtech.com/problems/publish-privacy-mismatch",
+  "type": "https://app-post.kentangtech.com/problems/publish-privacy-mismatch",
   "title": "Privacy level rejected",
   "status": 422,
   "detail": "The selected privacy level is not available for this account.",
@@ -220,7 +220,7 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 
 ## 12. Deployment Shape
 
-`deployment/` holds Docker Compose (app-serve, app-ui, PostgreSQL 17, Redis 7) and an Nginx reverse proxy that terminates TLS for `app-tiktok.kentangtech.com`, serves app-ui, proxies `/api/v1` to app-serve, and routes `/webhooks/tiktok` to the webhook handler.
+`deployment/` holds Docker Compose (app-serve, app-ui, PostgreSQL 17, Redis 7) and an Nginx reverse proxy that terminates TLS for `app-post.kentangtech.com`, serves app-ui, proxies `/api/v1` to app-serve, and routes `/webhooks/tiktok` to the webhook handler.
 
 ## 13. Open Items
 
