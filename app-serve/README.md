@@ -28,10 +28,17 @@ the service imports `net/http` server helpers; business logic stays in
 
 ## Run
 
+The process reads the environment directly; it does not parse `.env` itself.
+For a local run, export the file first:
+
 ```bash
 cp .env.example .env
+set -a; . ./.env; set +a
 go run ./cmd/app-serve
 ```
+
+Docker Compose loads the same file through `env_file`, so `docker compose up`
+needs no manual export.
 
 ## Testing
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Completed 2026-10-16. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 14 host cluster. The compose stack still pins PostgreSQL 17.
+**Status:** Completed 2026-10-16. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 17 host cluster (port 5433). The compose stack pins the same version.
 
 **Goal:** Keep the `video_stats` series warm with a background worker that sweeps every connected account, and bound the table with a 7 day retention.
 

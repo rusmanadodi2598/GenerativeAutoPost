@@ -30,9 +30,9 @@ The gates cover `go vet`, `gofmt`, `staticcheck`, `golangci-lint`, the 250 line
 source limit, the AGENTS.md file header, comment hygiene, `go test -race`, and a
 gitleaks pass. The integration suite is skipped unless `GENAUTO_TEST_POSTGRES_DSN`
 is set. Its tagged tests expect a database named `genauto_test`, which the
-migration fixtures rebuild between runs; the compose stack pins PostgreSQL 17,
-while the suite also runs against the local host cluster (14) over a peer
-socket, for example `postgres://$USER@/genauto_test?host=/var/run/postgresql`.
+migration fixtures rebuild between runs, on PostgreSQL 17. The compose stack
+pins the same version, and a local 17 cluster over the peer socket works, for
+example `postgres://$USER@/genauto_test?host=/var/run/postgresql&port=5433`.
 
 Install the hooks once per clone with `scripts/hooks/install.sh`. It sets
 `core.hooksPath` to `scripts/hooks`, which is what makes `pre-commit` and
@@ -42,7 +42,9 @@ Install the hooks once per clone with `scripts/hooks/install.sh`. It sets
 
 ```bash
 cp app-serve/.env.example app-serve/.env
-# Fill GENAUTO_DB_PASSWORD and the TikTok credentials in app-serve/.env.
+# Fill GENAUTO_DB_PASSWORD plus the TikTok credentials and the four Google
+# login keys (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI,
+# OPERATOR_EMAIL) in app-serve/.env.
 GENAUTO_DB_PASSWORD=local-only-secret docker-compose -f deployment/docker-compose.yml up --build
 curl http://localhost:8080/healthz
 ```

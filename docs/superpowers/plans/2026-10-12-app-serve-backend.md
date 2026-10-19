@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Completed 2026-10-15. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 14 host cluster. The compose stack still pins PostgreSQL 17.
+**Status:** Completed 2026-10-15. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 17 host cluster (port 5433). The compose stack pins the same version.
 
 **Goal:** Build the app-serve backend: a Go modular monolith behind `/api/v1` that owns OAuth, the TikTok token vault, publishing, webhook-first status, stats, and a git-clean gate set.
 
@@ -296,7 +296,7 @@ docker run -d --name genauto-pg -e POSTGRES_PASSWORD=secret -p 5433:5432 postgre
 GENAUTO_TEST_POSTGRES_DSN=postgres://postgres:secret@localhost:5433/postgres?sslmode=disable \
   go test -race -tags=integration ./internal/platform/postgres/
 ```
-Expected: PASS. (Local PG 14 is not the target; the gate uses 17.)
+Expected: PASS. (PostgreSQL 17 is the target; on this host the 17 cluster runs on port 5433, while 5432 stays on the 14 cluster.)
 
 - [x] **Step 5: Commit**
 
