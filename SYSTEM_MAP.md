@@ -149,9 +149,22 @@ Invariants worth not breaking:
 - Deleting an account clears the ciphertext and stamps `revoked_at`; it never
   deletes the row, so the audit trail survives.
 
-Required indexes (per `AGENTS.md` 1.7): `tiktok_accounts(open_id)`,
-`publish_attempts(publish_id)`, `publish_attempts(account_id, status)`,
-`webhook_events(dedupe_key)`, `video_stats(video_id, fetched_at DESC)`.
+Indexes as they exist in `migrations/`:
+
+| Index | Table | Shape |
+|---|---|---|
+| `ux_users_email` | `users` | unique on `email` |
+| `ix_sessions_user_id` | `sessions` | `user_id` |
+| `ux_tiktok_accounts_open_id` | `tiktok_accounts` | unique on `open_id` |
+| `ix_tiktok_accounts_user_id` | `tiktok_accounts` | `user_id` |
+| `ux_publish_attempts_publish_id` | `publish_attempts` | unique on `publish_id` |
+| `ix_publish_attempts_account_status` | `publish_attempts` | `(account_id, status)` |
+| `ix_publish_attempts_media_id` | `publish_attempts` | `media_id` |
+| `ux_webhook_events_dedupe_key` | `webhook_events` | unique on `dedupe_key` |
+| `ix_webhook_events_unprocessed` | `webhook_events` | `received_at`, partial where `processed_at IS NULL` |
+| `ix_outbox_unpublished` | `outbox` | `id`, partial where `published_at IS NULL` |
+| `ix_video_stats_video_fetched` | `video_stats` | `(video_id, fetched_at DESC)` |
+| `ix_creator_info_snapshots_account_fetched` | `creator_info_snapshots` | `(account_id, fetched_at DESC)` |
 
 ## 5. External integrations
 
@@ -179,6 +192,7 @@ transfer timeouts and does not go through `tiktokclient`.
 | `genauto:auth:refresh-lock:` | auth | Serializes token refresh per account | short |
 | `genauto:ratelimit:` | tiktokclient | Outbound per-account, per-family budget | window |
 | `genauto:ratelimit:webhook:` | webhook | Per-IP delivery budget | window |
+| `genauto:ratelimit:auth:` | auth | Per-IP budget for the two Google sign in routes | window |
 | `genauto:idempotency:` | platform/idempotency | `<key>:hash` and `<key>:resp` | 24h |
 | `genauto:webhook:dedupe:` | webhook | Per-delivery duplicate filter | delivery window |
 | `genauto:stream:events` | webhook outbox relay | Outbox rows appended for consumers | trimmed by length |
@@ -213,10 +227,13 @@ TikTok ──POST /webhooks/tiktok──► throttle ──► HMAC verify ─�
 | Stats sweep | `StatsWorker.Run`, bounded ticker | ctx cancel | per account and per video logged and skipped; the next tick retries |
 
 The stats sweep is a second background path. It runs on
-`STATS_REFRESH_INTERVAL` (default 3 hours), refreshes each account token
-through `auth.Service.Refresh`, pages the newest catalog through the shared
-limiter, appends one `video_stats` row per live video, and deletes rows older
-than `STATS_RETENTION` (default 168 hours).
+`STATS_REFRESH_INTERVAL` (default 3 hours), reads the connected account ids
+through the `compose.accountIDs` adapter, which drops revoked accounts, then
+for each account refreshes the token through `auth.Service.Refresh`, pages
+the newest catalog through the shared limiter, and appends one `video_stats`
+row per live video. After every account is walked it deletes rows older than
+`STATS_RETENTION` (default 168 hours). A per-account failure is logged and
+the sweep moves on, so one dead token cannot stall the others.
 
 Intake answers `200` once the signature is valid, including duplicates and
 unknown event types, because a non-`200` triggers up to 72 hours of TikTok

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Completed 2026-10-16. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 14 host cluster. The compose stack still pins PostgreSQL 17.
+
 **Goal:** Keep the `video_stats` series warm with a background worker that sweeps every connected account, and bound the table with a 7 day retention.
 
 **Architecture:** A new `insight.StatsWorker` follows the existing `webhook.Reconciler` worker shape: a `Run(ctx)` ticker loop that the composition root starts with panic recovery and joins on shutdown. Each tick refreshes every account token, pages the account's newest videos through the shared Redis rate limiter, appends one snapshot per video, then prunes rows older than the cutoff. The stats read path stops refetching the newest point on every open and serves stored points.
@@ -64,7 +66,7 @@ Input classes and failure modes the spec implies; each line is pinned by a test 
 - Consumes: `durationOr` from `internal/config/env.go`.
 - Produces: `Config.StatsRefreshInterval time.Duration`, `Config.StatsRetention time.Duration`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the `cases` table in `TestLoadWiringFields`:
 
@@ -96,12 +98,12 @@ Add to the `cases` table in `TestLoadWiringFields`:
 },
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test -count=1 ./internal/config/ -run TestLoadWiringFields -v`
 Expected: FAIL, `cfg.StatsRefreshInterval` is undefined.
 
-- [ ] **Step 3: Implement the fields**
+- [x] **Step 3: Implement the fields**
 
 In `internal/config/config.go`, add two defaults next to the other default constants:
 
@@ -134,12 +136,12 @@ if err != nil {
 
 Add `StatsRefreshInterval: statsInterval,` and `StatsRetention: statsRetention,` to the `Config{...}` literal.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -count=1 ./internal/config/ -run TestLoadWiringFields -v`
 Expected: PASS.
 
-- [ ] **Step 5: Update `.env.example` and SPEC 001 section 11**
+- [x] **Step 5: Update `.env.example` and SPEC 001 section 11**
 
 In `.env.example`, after the `WORKER_SIZE` block, append:
 
@@ -156,7 +158,7 @@ In `docs/SPEC/001-BACKEND-ARCHITECTURE.md` section 11, add the two rows to the t
 | `STATS_RETENTION` | Stats point age cutoff, default `168h` |
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app-serve/internal/config/config.go app-serve/internal/config/wiring_test.go app-serve/.env.example docs/SPEC/001-BACKEND-ARCHITECTURE.md
@@ -177,7 +179,7 @@ git commit -m "feat(app-serve): add stats worker cadence and retention config"
 - Consumes: `Repository.pool`, the `video_stats` table.
 - Produces: `func (r *Repository) DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error)`, and the same method on the `SnapshotStore` interface.
 
-- [ ] **Step 1: Write the failing integration test**
+- [x] **Step 1: Write the failing integration test**
 
 Add to `internal/insight/repository_test.go` (file already has `//go:build integration`):
 
@@ -218,12 +220,12 @@ func TestDeleteStatsBeforeRemovesEveryVideoOlderThanCutoff(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd app-serve && GENAUTO_TEST_POSTGRES_DSN="postgres://rusmanadodi@/genauto_test?host=/var/run/postgresql" go test -count=1 -tags=integration ./internal/insight/ -run TestDeleteStatsBefore -v`
 Expected: FAIL, `repo.DeleteStatsBefore` is undefined.
 
-- [ ] **Step 3: Implement the prune**
+- [x] **Step 3: Implement the prune**
 
 Add to `internal/insight/repository.go`, after `ListStats`:
 
@@ -247,7 +249,7 @@ Add to the `SnapshotStore` interface in `internal/insight/stats.go`:
 DeleteStatsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 ```
 
-- [ ] **Step 4: Add the fake and run the test to verify it passes**
+- [x] **Step 4: Add the fake and run the test to verify it passes**
 
 Add to `internal/insight/fakes_test.go`:
 
@@ -271,7 +273,7 @@ func (f *fakeStore) DeleteStatsBefore(_ context.Context, cutoff time.Time) (int6
 Run: `cd app-serve && GENAUTO_TEST_POSTGRES_DSN="postgres://rusmanadodi@/genauto_test?host=/var/run/postgresql" go test -count=1 -tags=integration ./internal/insight/ -run TestDeleteStatsBefore -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/insight/repository.go app-serve/internal/insight/repository_test.go app-serve/internal/insight/stats.go app-serve/internal/insight/fakes_test.go
@@ -293,7 +295,7 @@ git commit -m "feat(app-serve): add video stats pruning to the insight store"
 - Consumes: nothing new.
 - Produces: `StatRange7d` as the only `StatRange`; `parseRange(raw string) (StatRange, error)` defaults to `StatRange7d` and rejects every other value.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `stats_series_test.go`, replace `TestRangeParsingAcceptsTheClosedSet` with:
 
@@ -315,12 +317,12 @@ func TestRangeParsingAcceptsOnlySevenDays(t *testing.T) {
 
 In `stats_route_test.go`, change `TestStatsRouteAnswersTheSeries` to expect `data["range"] == "7d"`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test -count=1 ./internal/insight/ -run TestRangeParsing -v`
 Expected: FAIL, `30d` is still accepted.
 
-- [ ] **Step 3: Implement the shrink**
+- [x] **Step 3: Implement the shrink**
 
 In `internal/insight/schema.go`:
 
@@ -343,12 +345,12 @@ In `internal/insight/handler.go`, change the validation detail to `"Stats range 
 
 In `internal/insight/stats.go`, change the `StatsSeries` validation detail to `"Stats range must be 7d."`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race -count=1 ./internal/insight/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/insight/schema.go app-serve/internal/insight/handler.go app-serve/internal/insight/stats.go app-serve/internal/insight/stats_series_test.go app-serve/internal/insight/stats_route_test.go
@@ -374,7 +376,7 @@ git commit -m "feat(app-serve): close the stats range to the 7 day window"
 - Consumes: `Store.ListStats`, `Service.fetchStats`, `Service.access`.
 - Produces: `StatsSeries` performs no upstream call when the video has stored points; `Service.VideoStats`, `Service.Config.StatsTTL`, `SnapshotStore.LatestStats`, and `Repository.LatestStats` are removed.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Replace the four `TestVideoStats*` tests in `service_test.go` with series tests, and replace `TestStatsSeriesGivenStaleLatestPoint_ThenExactlyOneRefetch` in `stats_series_test.go`:
 
@@ -436,12 +438,12 @@ func TestStatsSeriesGivenNoPointsAndUpstreamError_ThenErrorPropagates(t *testing
 
 In `stats_route_test.go`, keep `TestStatsRouteAnswersTheSeries` as the first-sighting path (no stored point, one fetch, `writes == 1`), and change `TestStatsRouteKeepsStoredHistoryBehindTheFreshestPoint` to `TestStatsRouteServesStoredHistoryWithoutRefetch`, asserting `h.store.writes == 0` and `len(points) == 2`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test -count=1 ./internal/insight/ -run TestStatsSeriesGivenStoredPoints -v`
 Expected: FAIL, the read still refetches.
 
-- [ ] **Step 3: Implement the read-only series**
+- [x] **Step 3: Implement the read-only series**
 
 In `internal/insight/stats.go`, replace `VideoStats` and the body of `StatsSeries`:
 
@@ -522,13 +524,13 @@ func TestStatsListReturnsTheWindowAscendingWithNilAndZeroKept(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race -count=1 ./internal/insight/`
 Run: `cd app-serve && GENAUTO_TEST_POSTGRES_DSN="postgres://rusmanadodi@/genauto_test?host=/var/run/postgresql" go test -count=1 -tags=integration ./internal/insight/ -run TestStats`
 Expected: PASS on both.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/insight
@@ -576,7 +578,7 @@ func (w *StatsWorker) Run(ctx context.Context)
 func (w *StatsWorker) SweepOnce(ctx context.Context) error
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `internal/insight/worker_test.go` with the fakes and these tests:
 
@@ -605,12 +607,12 @@ func TestSweepOnceGivenPagedCatalog_ThenEveryPageIsWalked(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test -count=1 ./internal/insight/ -run TestSweepOnce -v`
 Expected: FAIL, `StatsWorker` is undefined.
 
-- [ ] **Step 3: Implement `StatsWorker`**
+- [x] **Step 3: Implement `StatsWorker`**
 
 Create `internal/insight/worker.go` with the `AGENTS.md` 1.2 header at `@layer worker`, `@file internal/insight/worker.go`. The body:
 
@@ -746,12 +748,12 @@ func (w *StatsWorker) appendStats(ctx context.Context, access string, ids []stri
 
 If the file passes 220 lines, move `listVideoIDs` and `appendStats` into `internal/insight/worker_sweep.go`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race -count=1 ./internal/insight/ -run TestSweepOnce -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/insight/worker.go app-serve/internal/insight/worker_sweep.go app-serve/internal/insight/worker_test.go
@@ -773,7 +775,7 @@ git commit -m "feat(app-serve): add the video stats sweep worker"
 - Consumes: `insight.NewStatsWorker`, `insight.StatsWorkerConfig`, `auth.Service.Refresh`, `account.Service.List`, `account.Service.Owned`, `tiktokclient.Limiter`, `newGateAdapter`.
 - Produces: `App.StatsWorker *insight.StatsWorker`, and `accountIDs` as the `insight.AccountLister` adapter.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `internal/compose/build_test.go`, extend `TestBuildMountsAQueryableHealthProbe`:
 
@@ -803,12 +805,12 @@ func TestAccountIDsMapsTheOwnedAccountsInOrder(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test -count=1 ./internal/compose/ -run TestBuildMountsAQueryableHealthProbe -v`
 Expected: FAIL, `App.StatsWorker` is undefined.
 
-- [ ] **Step 3: Implement the adapters and the wiring**
+- [x] **Step 3: Implement the adapters and the wiring**
 
 Create `internal/compose/stats_worker.go` with the `AGENTS.md` 1.2 header at `@layer service`:
 
@@ -870,12 +872,12 @@ go supervised(&workers, logger, "stats sweep", func() {
 })
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race -count=1 ./internal/compose/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/compose/stats_worker.go app-serve/internal/compose/stats_worker_test.go app-serve/internal/compose/build.go app-serve/internal/compose/build_test.go cmd/app-serve/main.go
@@ -897,23 +899,23 @@ git commit -m "feat(app-serve): start the stats sweep in the composition root"
 - Consumes: the accepted design at `docs/superpowers/specs/2026-10-16-video-stats-retention-worker-design.md`.
 - Produces: no code.
 
-- [ ] **Step 1: Write ADR 003**
+- [x] **Step 1: Write ADR 003**
 
 Create `docs/DECISIONS/003-VIDEO-STATS-RETENTION-WORKER.md` recording decisions 1 to 10 from the design, with the positive and negative consequences and the confirmed token refresh.
 
-- [ ] **Step 2: Update the affected docs**
+- [x] **Step 2: Update the affected docs**
 
 - `docs/DECISIONS/002`: mark decision 3's range as `7d` only, point open question 1 at ADR 003, and note the read path is now read-only.
 - `docs/SPEC/003` section 7.5: change the enum to `7d`, the default to `7d`, and replace the refresh-on-read rule with first-sighting plus the worker.
 - `SYSTEM_MAP.md`: add the stats sweep to the worker flow and the background jobs, and update the stats read description.
 - `docs/CHANGELOG/001-V1-BACKEND.md`: add the retention and worker entry.
 
-- [ ] **Step 3: Verify the antislop comment and text gate**
+- [x] **Step 3: Verify the antislop comment and text gate**
 
 Run: `bash scripts/gates/antislop.sh`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/DECISIONS docs/SPEC/003-API-CONTRACT.md SYSTEM_MAP.md docs/CHANGELOG/001-V1-BACKEND.md
@@ -924,12 +926,12 @@ git commit -m "docs: record the video stats retention and worker decision"
 
 ## Final verification
 
-- [ ] **Whole gate suite**
+- [x] **Whole gate suite**
 
 Run: `bash scripts/gates/all.sh`
 Expected: all PASS.
 
-- [ ] **Tagged integration suite**
+- [x] **Tagged integration suite**
 
 Run: `cd app-serve && GENAUTO_TEST_POSTGRES_DSN="postgres://rusmanadodi@/genauto_test?host=/var/run/postgresql" go test -race -p 1 -count=1 -tags=integration ./...`
 Expected: all `ok`.

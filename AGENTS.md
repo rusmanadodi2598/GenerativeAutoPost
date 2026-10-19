@@ -1,4 +1,4 @@
-# AGENT.md: Mandatory Rules for AI Coding Agents (Go)
+# AGENTS.md: Mandatory Rules for AI Coding Agents (Go)
 
 > Applies to all Go services under `app-*/**` (the `cmd/` and `internal/` tree of every Go microservice in the Kentang Tech stack). Any AI coding agent (Claude Code, Cursor, Copilot, etc.) operating on a Go file in this repository MUST read this file before generating, editing, or reviewing code. A change that cannot satisfy these rules must be split or redesigned; do not bypass them.
 
@@ -12,7 +12,7 @@
 
 1. Check `WORKSPACE` (Graphify) for the target service's dependency graph.
 2. Read `SYSTEM_MAP.md`: SSoT for topology, domain boundaries, data flows, async queues.
-3. Read this file (`AGENT.md`), coding standards for this codebase.
+3. Read this file (`AGENTS.md`), coding standards for this codebase.
 
 If the change alters domain boundaries, data structures, or service interactions, `SYSTEM_MAP.md` **must** be updated in the same PR. "I'll update the map later" is not acceptable.
 
@@ -234,7 +234,7 @@ Untuk mendukung stabilitas microservices dan mempercepat delivery, codebase ini 
 
 - [ ] Any change altering domain boundaries, data structures, service interactions, or async topology requires a `SYSTEM_MAP.md` update **in the same PR**.
 - [ ] `/graphify update` runs, and its output is reviewed, on any task touching module dependencies.
-- [ ] PR description states explicitly whether `SYSTEM_MAP.md` / this `AGENT.md` were reviewed and needed updates: "N/A, no structural change" is acceptable but required.
+- [ ] PR description states explicitly whether `SYSTEM_MAP.md` / this `AGENTS.md` were reviewed and needed updates: "N/A, no structural change" is acceptable but required.
 
 ---
 
@@ -261,17 +261,17 @@ Prefer the Go standard library over third-party frameworks by default (`net/http
 - [ ] Every outbound call has an explicit `context` timeout; every goroutine recovers from panic (1.6)
 - [ ] No unbounded queries; N+1 documented if accepted; indexes added; pool limits set (1.7)
 - [ ] `SYSTEM_MAP.md` updated or explicitly marked N/A (1.9)
-- [ ] Comment and text hygiene clean per `scrypts/gates/antislop.sh` (docs/RULLES/ANTISLOP.md)
+- [ ] Comment and text hygiene clean per `scripts/gates/antislop.sh` (antislop core rules)
 
 ---
 
 ## NOTE
 1. Mandatory:
 - Build Source Code: AGENTS.md
-- Strict Validation: go-playground/validator/v10 (Golang) / Zod v4xx latest (Svelte / TypeScrypts)
+- Strict Validation: go-playground/validator/v10 (Golang) / Zod v4xx latest (Svelte / TypeScript)
 - Strict Test: docs/RULLES/TDD.md
-- SSRF: docs/RULLES/SSRF.md
-- Antislop (comment and text hygiene): docs/RULLES/ANTISLOP.md, enforced by `scrypts/gates/antislop.sh`
+- SSRF: docs/RULLES/OWASP.md (SSRF section)
+- Antislop (comment and text hygiene): antislop core rules, enforced by `scripts/gates/antislop.sh`
 
 2. Stack:
 - Go v1.26 (Latest)

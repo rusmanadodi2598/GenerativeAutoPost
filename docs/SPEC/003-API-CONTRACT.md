@@ -284,7 +284,8 @@ This route is not under `/api/v1` by design: it is TikTok's contract, not ours, 
 | Publish init, per account | Mirrors TikTok: 6 per minute | `429` before the upstream call |
 | Status fetch, per account | Mirrors TikTok: 30 per minute | `429` before the upstream call |
 | Creator info, per account | Mirrors TikTok: 20 per minute | Served from cache when fresh |
-| Video list, per account | TikTok publishes none, so 30 per minute | Shared by the stats sweep, which pages with a delay |
+| Video list, per account | TikTok publishes none, so 30 per minute | Shared by the stats sweep, which pages through the same limiter |
+| Google sign in, per IP | 30 per minute | `429` with `Retry-After` before the handler runs |
 | Webhook, per IP | Fixed window | `429`, logged |
 
 Local limits exist so we fail fast instead of burning the upstream quota. A local `429` and an upstream `429` are distinct codes: `RATE_LIMITED` and `TIKTOK_RATE_LIMITED`. The first is our discipline, the second is TikTok's.

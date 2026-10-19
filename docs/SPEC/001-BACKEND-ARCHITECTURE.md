@@ -100,7 +100,7 @@ All primary keys are UUIDv7 unless noted. All timestamps are `timestamptz`.
 | `creator_info_snapshots` | `id`, `account_id`, `creator_username`, `creator_nickname`, `creator_avatar_url`, `privacy_level_options TEXT[]`, `comment_disabled`, `duet_disabled`, `stitch_disabled`, `max_video_post_duration_sec`, `fetched_at` | Cached, short TTL |
 | `outbox` | `id`, `aggregate_type`, `aggregate_id`, `event_type`, `payload JSONB`, `published_at` | Transactional outbox to Redis Streams |
 
-Indexes required by `AGENTS.md` 1.7: `tiktok_accounts(open_id)`, `publish_attempts(publish_id)`, `publish_attempts(account_id, status)`, `publish_attempts(media_id)`, `webhook_events(dedupe_key)`, `webhook_events(processed_at)`, `video_stats(video_id, fetched_at DESC)`, `creator_info_snapshots(account_id, fetched_at)`, `outbox(published_at)`.
+Indexes as they exist in `migrations/`: `users(email)` unique, `sessions(user_id)`, `tiktok_accounts(open_id)` unique, `tiktok_accounts(user_id)`, `publish_attempts(publish_id)` unique, `publish_attempts(account_id, status)`, `publish_attempts(media_id)`, `webhook_events(dedupe_key)` unique, `webhook_events(received_at)` partial where `processed_at IS NULL`, `outbox(id)` partial where `published_at IS NULL`, `video_stats(video_id, fetched_at DESC)`, `creator_info_snapshots(account_id, fetched_at DESC)`.
 
 Destructive migrations require explicit sign-off and a working `down` before merge.
 
@@ -113,6 +113,7 @@ Destructive migrations require explicit sign-off and a working `down` before mer
 | `genauto:auth:refresh-lock:<account_id>` | Serializes token refresh per account | Short |
 | `genauto:ratelimit:<family>:<account_id>:<minute>` | Outbound per-account TikTok budget | Fixed window |
 | `genauto:ratelimit:webhook:<ip>` | Inbound webhook throttle | Fixed window |
+| `genauto:ratelimit:auth:<ip>` | Per-IP budget for the two Google sign in routes | Fixed window |
 | `genauto:idempotency:<key>:hash` / `:resp` | Request claim and stored replay | 24 hours |
 | `genauto:webhook:dedupe:<dedupe_key>` | Replay guard before the DB row | Delivery window |
 | `genauto:stream:events` | Outbox relay target | Trimmed by length |

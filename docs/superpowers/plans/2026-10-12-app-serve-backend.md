@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Completed 2026-10-15. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 14 host cluster. The compose stack still pins PostgreSQL 17.
+
 **Goal:** Build the app-serve backend: a Go modular monolith behind `/api/v1` that owns OAuth, the TikTok token vault, publishing, webhook-first status, stats, and a git-clean gate set.
 
 **Architecture:** One binary (`cmd/app-serve`), one PostgreSQL 17 database, one Redis 7. Module boundaries are package boundaries: `config`, `platform/*`, `apierror`, `tiktokclient`, `auth`, `account`, `publish`, `webhook`, `insight`, `media`. Strict layering `schema -> domain -> repository -> service -> handler -> router`. Chunk uploads and upstream URLs stay server-side. Webhook is the primary publish-state signal; the status endpoint is a bounded reconciler only.
@@ -46,7 +48,7 @@
 - Consumes: nothing
 - Produces: a git repository whose root `scrypts/` helper can resolve via `git rev-parse --show-toplevel`
 
-- [ ] **Step 1: Initialize git if absent**
+- [x] **Step 1: Initialize git if absent**
 
 Run:
 ```bash
@@ -55,7 +57,7 @@ git status --short
 ```
 Expected: a clean status line set (possibly with untracked docs).
 
-- [ ] **Step 2: Write `.gitignore`**
+- [x] **Step 2: Write `.gitignore`**
 
 ```gitignore
 # binaries and build output
@@ -84,7 +86,7 @@ app-ui/dist/
 app-ui/.bun/
 ```
 
-- [ ] **Step 3: Write `.gitleaks.toml`**
+- [x] **Step 3: Write `.gitleaks.toml`**
 
 ```toml
 title = "GenerativeAutoPost gitleaks config"
@@ -101,11 +103,11 @@ paths = [
 ]
 ```
 
-- [ ] **Step 4: Write root `README.md`**
+- [x] **Step 4: Write root `README.md`**
 
 Content: project name, one paragraph purpose, layout (`scripts/`, `migrations/`, `docs/`, `deployment/`, `app-serve/`, `app-ui/`), links to `docs/SPEC/`, `docs/DECISIONS/`, gates usage (`scripts/gates/all.sh`), webhook host placeholder.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitignore .gitleaks.toml README.md
@@ -126,31 +128,31 @@ git commit -m "chore: repository root, ignore rules, gitleaks config"
 
 Notes: adapt from the `pannelAI/scrypts` pattern, renamed to `scripts/` per the user brief. Env prefix for this repo is `GENAUTO_` (not `PANNELAI_`). No Svelte/panel gates yet: `all.sh` runs go gates + headers + antislop + secrets; frontend gates are added when app-ui exists. The Review Focus line about `state` reuse will get its test in Task 9.
 
-- [ ] **Step 1: Write `scripts/lib/common.sh`**
+- [x] **Step 1: Write `scripts/lib/common.sh`**
 
 Content: `repo_root()` via `git rev-parse --show-toplevel`; colour helpers (`gate_start`, `gate_pass`, `gate_fail`, `gate_skip`); `have`, `require_tool`, `tool_path`; `go_service_dirs()` finding `app-*/go.mod` at maxdepth 2; `changed_files()` and `change_set()` with the `GATES_BASE_REF` guard that fails when the base does not resolve (a gate that inspects nothing is not a pass).
 
-- [ ] **Step 2: Write `scripts/gates/go-lint.sh`**
+- [x] **Step 2: Write `scripts/gates/go-lint.sh`**
 
 Content: for each dir from `go_service_dirs()`: `go vet ./...`, `go vet -tags=integration ./...`, `gofmt -l`, `staticcheck ./...` (required, fail if missing), `golangci-lint run ./...` (skip with warning if missing). Line-limit check on changed files matching `app-*/internal/*.go`, `app-*/internal/*/*.go`, `app-*/cmd/*.go`, `app-*/cmd/*/*.go`, excluding `*_gen.go`, `*.pb.go`, vendor: fail over 250 lines, warn over 220.
 
-- [ ] **Step 3: Write `scripts/gates/go-test.sh`**
+- [x] **Step 3: Write `scripts/gates/go-test.sh`**
 
 Content: for each service dir: `go test -race -count=1 ./...`. If `GENAUTO_TEST_POSTGRES_DSN` is set, also run `go test -race -p 1 -tags=integration -count=1 ./...`; else skip with a message naming the variable. `GENAUTO_TEST_REDIS_ADDR` required by tagged tests.
 
-- [ ] **Step 4: Write `scripts/gates/go-headers.sh`**
+- [x] **Step 4: Write `scripts/gates/go-headers.sh`**
 
 Content: check the eight tags exactly once each in every `app-*/internal/**` and `app-*/cmd/**` `.go` file; `@file` must equal the path relative to the module root containing `go.mod`; `@author` exactly `Dodi Rusmana <rusmanadodi@kentangtech.com>`; `@layer` and `@stability` from the enumerated sets; generated files exempt. Mode default: changed files; `--all` checks the whole tree.
 
-- [ ] **Step 5: Write `scripts/gates/secrets.sh`**
+- [x] **Step 5: Write `scripts/gates/secrets.sh`**
 
 Content: mode `--staged` runs `gitleaks git --staged`; mode `--all` runs `gitleaks git` plus `gitleaks dir` on tracked and untracked-but-not-ignored files. Both read the repo `.gitleaks.toml`. Fail when `gitleaks` is missing.
 
-- [ ] **Step 6: Write `scripts/gates/antislop.sh`**
+- [x] **Step 6: Write `scripts/gates/antislop.sh`**
 
 Content: fail on em dash (`—`) in hand-written Go comments; fail on a header region (`@file`..`@since`) with a wrapped continuation line; fail on comment citations matching `draft [0-9]+` or `audit [0-9]+` below the `package` line (header region exempt, string literals stripped first). Scope: changed Go files by default, `--all` for the tree.
 
-- [ ] **Step 7: Write `scripts/gates/all.sh`**
+- [x] **Step 7: Write `scripts/gates/all.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -174,15 +176,15 @@ printf '\n==> summary\n'; printf '%s\n' "${summary[@]}"
 [ "$failed" -eq 0 ]
 ```
 
-- [ ] **Step 8: Write hooks `pre-commit`, `pre-push`, `install.sh`**
+- [x] **Step 8: Write hooks `pre-commit`, `pre-push`, `install.sh`**
 
 `pre-commit`: gofmt on staged Go files, `go-headers.sh` on staged files, `antislop.sh`, `secrets.sh --staged`. `pre-push`: full `all.sh` with `GATES_BASE_REF` set to the push base. `install.sh`: sets `core.hooksPath=scripts/hooks`, verifies each hook exists and is executable.
 
-- [ ] **Step 9: Write the failing self-test first**
+- [x] **Step 9: Write the failing self-test first**
 
 Create `scripts/gates/self-test.sh`: builds a temp copy of the tree, injects (a) a Go file over 250 lines, (b) a header missing `@reason`, (c) a comment with an em dash, (d) a fake secret `TIKTOK_CLIENT_SECRET = "x" * 40` in a staged file, and asserts the matching gate fails. Run it: expect FAIL because the gates do not exist yet.
 
-- [ ] **Step 10: Implement gates, then run**
+- [x] **Step 10: Implement gates, then run**
 
 ```bash
 chmod +x scripts/gates/*.sh scripts/hooks/* scripts/gates/self-test.sh
@@ -191,7 +193,7 @@ bash scripts/gates/all.sh
 ```
 Expected: PASS on the current tree (docs only, no Go module yet: go gates SKIP with "no Go module found").
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add scripts/ .gitignore
@@ -217,35 +219,35 @@ git commit -m "chore: gates and git hooks per AGENTS.md"
 
 Module path: `module github.com/kentangtech/GenerativeAutoPost/app-serve`, `go 1.26`, `toolchain go1.26.5`. Dependencies allowed in this task: `go-playground/validator/v10`, `github.com/jackc/pgx/v5`, `github.com/redis/go-redis/v9`, `github.com/gin-gonic/gin`. Document the Gin-for-data-plane choice in `app-serve/README.md` per AGENTS.md (stdlib default, Gin justified by route groups and middleware).
 
-- [ ] **Step 1: Write failing config test**
+- [x] **Step 1: Write failing config test**
 
 `config_test.go` table: missing `DATABASE_URL` fails; malformed `APP_PORT` fails; `MEDIA_DRIVER=tape` fails; `TOKEN_ENC_KEY` not 32 bytes fails; valid minimal env passes. Run `go test ./internal/config/`: FAIL, package missing.
 
-- [ ] **Step 2: Implement `config.go`**
+- [x] **Step 2: Implement `config.go`**
 
 Typed struct, `Load()` reading env once, `validate.Struct` tags, no `os.Getenv` anywhere else. Keep under 250 lines by splitting field docs into the `.env.example` comments instead of the struct.
 
-- [ ] **Step 3: Write failing crypto tests**
+- [x] **Step 3: Write failing crypto tests**
 
 `crypto_test.go` table: encrypt/decrypt round trip across 3 plaintext sizes (empty must fail, 16 bytes, 64KB random); decrypt with wrong key fails; `VerifyHMACSHA256` true on the exact `t.body` vector `t=1633174587,s=<hmac>`, false on body with trailing newline, false on re-ordered JSON keys, false on wrong key (covers the Review Focus webhook-body line; the HTTP-level test lands in the webhook task).
 
-- [ ] **Step 4: Implement `crypto.go`**
+- [x] **Step 4: Implement `crypto.go`**
 
 AES-256-GCM with random nonce per encryption, `key_id` prefix stored alongside ciphertext so rotation works; HMAC-SHA256 hex compare with `hmac.Equal`.
 
-- [ ] **Step 5: Write failing apierror tests**
+- [x] **Step 5: Write failing apierror tests**
 
 `apierror_test.go`: `Write` produces `application/problem+json` with the six members; `log_id` omitted when empty; `debug` present in development and absent in production; a body containing a fake `client_secret` value is redacted in both environments; golden file for the `VALIDATION_FAILED` shape.
 
-- [ ] **Step 6: Implement `apierror.go` plus `code` catalog**
+- [x] **Step 6: Implement `apierror.go` plus `code` catalog**
 
 Codes from 002 section 8 and 003 sections 6/9, each mapped to HTTP status and a stable `type` URI. Redaction pass over the serialized body matching `client_secret`, `refresh_token`, `access_token`, `password`, `authorization` case-insensitively.
 
-- [ ] **Step 7: Implement platform packages and `main.go`**
+- [x] **Step 7: Implement platform packages and `main.go`**
 
 `postgres.go`: pgx pool with explicit max open/idle/lifetime from config. `redisx.go`: client plus key-namespace constants. `logging.go`: slog JSON in production, text in development. `httpapi.go`: Gin engine, request-id, logger, recovery; health route `GET /healthz`. `main.go`: load config, wire pool/client/logger, run server, graceful shutdown on SIGTERM.
 
-- [ ] **Step 8: Write `.env.example` and run gates**
+- [x] **Step 8: Write `.env.example` and run gates**
 
 `.env.example` lists every variable from 001 section 11 with comments, no values. Then:
 ```bash
@@ -254,7 +256,7 @@ cd /home/rusmanadodi/GenerativeAutoPost && bash scripts/gates/all.sh
 ```
 Expected: all PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add app-serve/ scripts/
@@ -275,19 +277,19 @@ git commit -m "feat(app-serve): scaffold, typed config, crypto, RFC9457 errors"
 
 Column-for-column per 001 section 5, including the unique indexes on `tiktok_accounts(open_id)`, `publish_attempts(publish_id)`, `webhook_events(dedupe_key)`, and `video_stats(video_id, fetched_at DESC)`. Token columns: `*_enc BYTEA NOT NULL`, plus `token_key_id TEXT`.
 
-- [ ] **Step 1: Write failing integration migration test**
+- [x] **Step 1: Write failing integration migration test**
 
 `migrate_test.go` (`//go:build integration`): `Up` on an empty database creates all ten tables; applying `Up` twice is a no-op; `Down` rolls back one step. Run without `GENAUTO_TEST_POSTGRES_DSN`: expect SKIP message, not failure. Run with it: FAIL, no files.
 
-- [ ] **Step 2: Write the three up/down pairs**
+- [x] **Step 2: Write the three up/down pairs**
 
 Keep each pair focused; destructive statements forbidden in `up` (drops only appear in `down` with a comment citing the sign-off rule).
 
-- [ ] **Step 3: Implement the runner**
+- [x] **Step 3: Implement the runner**
 
 Journal-based, transactional per file, `migrate.Up` used by `main.go` behind a flag.
 
-- [ ] **Step 4: Run against a real PostgreSQL 17**
+- [x] **Step 4: Run against a real PostgreSQL 17**
 
 ```bash
 docker run -d --name genauto-pg -e POSTGRES_PASSWORD=secret -p 5433:5432 postgres:17
@@ -296,7 +298,7 @@ GENAUTO_TEST_POSTGRES_DSN=postgres://postgres:secret@localhost:5433/postgres?ssl
 ```
 Expected: PASS. (Local PG 14 is not the target; the gate uses 17.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add migrations/ app-serve/internal/platform/postgres/
@@ -330,23 +332,23 @@ git commit -m "feat(app-serve): core, publish, insight migrations"
 
 The fake server replays: happy paths for all endpoints, each TikTok error code in the map table, `429` after N requests to exercise the limiter, and chunk `Content-Range` validation.
 
-- [ ] **Step 1: Write the fake server and one failing test**
+- [x] **Step 1: Write the fake server and one failing test**
 
 `client_test.go` table for `ExchangeCode`: valid code returns tokens; invalid code returns `TIKTOK_REAUTH_REQUIRED`. Run: FAIL, no client.
 
-- [ ] **Step 2: Implement schema, client, error map**
+- [x] **Step 2: Implement schema, client, error map**
 
 One file per concern to respect the 250-line limit: `schema.go` (wire types with exact TikTok names, including the `publicaly` misspelling on the wire with correctly-spelled Go names and a comment citing 002 section 5.3), `client.go` (do with timeout, decode, map), `errors.go` (the 002 section 8 table as data, unknown codes to `TIKTOK_UNKNOWN_ERROR`).
 
-- [ ] **Step 3: Add the remaining table tests**
+- [x] **Step 3: Add the remaining table tests**
 
 Per endpoint: happy path, one domain error, `429` then success after backoff, `5xx` then success after bounded retry, malformed JSON body from upstream to `TIKTOK_BAD_UPSTREAM`. Chunk test: wrong range rejected client-side before any HTTP call. Run full file: `go test -race ./internal/tiktokclient/`, PASS.
 
-- [ ] **Step 4: Implement `ratelimit.go`**
+- [x] **Step 4: Implement `ratelimit.go`**
 
 Redis token bucket per account per endpoint family (6/min video init, 20/min creator info, 30/min status). When Redis is unreachable, fail closed for publish paths (refuse) and fail open for read paths (log), documented in the file header `@reason`.
 
-- [ ] **Step 5: Gates and commit**
+- [x] **Step 5: Gates and commit**
 
 ```bash
 cd app-serve && go test -race ./internal/tiktokclient/ && cd .. && bash scripts/gates/all.sh
@@ -372,19 +374,19 @@ git commit -m "feat(app-serve): TikTok client with fake server and error map"
 
 Cookie: opaque session ID, `HttpOnly`, `Secure`, `SameSite=Lax`, name/TTL from config. CSRF token per session compared against `X-CSRF-Token`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Table for callback: valid code+state creates session and sets cookie; reused `state` fails with `401`-family code (the race test: fire two callbacks with the same `state` concurrently, assert exactly one success); mismatched `state` fails; TikTok `error=access_denied` redirects to app-ui failure without echoing the description; missing scope in the granted list marks the account partial. Auth-failure test per route: no cookie to `200`.
 
-- [ ] **Step 2: Implement schema, domain, service**
+- [x] **Step 2: Implement schema, domain, service**
 
 `state` generation with `crypto/rand` 32 bytes base64url. Refresh path takes a per-account Redis lock (`SET NX PX`) before calling `RefreshToken`. Refresh failure with invalid token marks needs-reauth; no retry loop.
 
-- [ ] **Step 3: Implement handler and router, run tests**
+- [x] **Step 3: Implement handler and router, run tests**
 
 `go test -race ./internal/auth/`: PASS. Then gates.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app-serve/internal/auth/
@@ -403,25 +405,25 @@ git commit -m "feat(app-serve): OAuth authorize, callback, session, CSRF"
 - Consumes: `crypto.Keyring`, `postgres.Pool`
 - Produces: the real `UpsertAccount` implementation consumed by Task 6; `account.Service.GetOwned(ctx, operatorID, accountID) (Account, error)` enforcing ownership (deny by default, `404` on foreign IDs)
 
-- [ ] **Step 1: Write failing aggregate unit tests**
+- [x] **Step 1: Write failing aggregate unit tests**
 
 Run: FAIL, no package.
 
-- [ ] **Step 2: Implement domain with unexported fields**
+- [x] **Step 2: Implement domain with unexported fields**
 
 Token material never leaves the package decrypted except through `AccessToken(ctx)` which returns plaintext only to the calling service, never to a handler.
 
-- [ ] **Step 3: Write failing repository integration tests, implement**
+- [x] **Step 3: Write failing repository integration tests, implement**
 
 `repository_test.go` (`//go:build integration`): upsert then read returns the same `open_id`; second upsert with new tokens rotates; raw DB read shows ciphertext, not the `act.` prefix (assert the stored bytes do not contain the test token).
 
-- [ ] **Step 4: Wire the real upsert into auth, run everything**
+- [x] **Step 4: Wire the real upsert into auth, run everything**
 
 ```bash
 GENAUTO_TEST_POSTGRES_DSN=... GENAUTO_TEST_REDIS_ADDR=... go test -race -p 1 -tags=integration ./internal/account/ ./internal/auth/
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/account/
@@ -443,19 +445,19 @@ git commit -m "feat(app-serve): TikTokAccount aggregate and encrypted token vaul
   - `PlanChunks` enforcing 5MB-64MB per chunk, at most 1000, sequential, trailing remainder under 5MB merged into the previous chunk (table test with at least: exact multiple, remainder 123 bytes, single chunk, 1001-chunk input rejected, zero bytes rejected)
   - `SignPublicURL` producing URLs under `MEDIA_PUBLIC_BASE_URL` only
 
-- [ ] **Step 1: Write failing `PlanChunks` table test**
+- [x] **Step 1: Write failing `PlanChunks` table test**
 
 Run: FAIL.
 
-- [ ] **Step 2: Implement domain and stores**
+- [x] **Step 2: Implement domain and stores**
 
 Disk store under a configured root; S3 store via `s3.PutObject` against `S3_ENDPOINT` (R2). Both return the same `MediaObject` shape from 003 section 7.3.
 
-- [ ] **Step 3: Implement service, handler, router; run tests and gates**
+- [x] **Step 3: Implement service, handler, router; run tests and gates**
 
 Validation failure test: `.exe` upload rejected; oversize rejected; `PULL_FROM_URL` request for a non-verified host rejected.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app-serve/internal/media/
@@ -481,19 +483,19 @@ git commit -m "feat(app-serve): media store, chunk planner, upload routes"
 
 Server-side rules from 003 section 7.4 enforced in the service in this order: privacy option check (Review Focus: foreign value to `PUBLISH_PRIVACY_LEVEL_MISMATCH`), UTF-16 rune length (write a `utf16len` helper with its own table test), commercial-toggle coherence, verified-URL check, server-set `is_aigc`.
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Tables: init happy path returns `202` shape; `privacy_level` not in options rejected; title 2201 UTF-16 runes rejected; branded flag with `SELF_ONLY` rejected; `PULL_FROM_URL` with unverified host rejected; duplicate idempotency key with changed body to `409`.
 
-- [ ] **Step 2: Implement domain transitions and service**
+- [x] **Step 2: Implement domain transitions and service**
 
 Aggregate owns the status machine; illegal transitions (e.g. `FAILED -> PUBLISH_COMPLETE` without a new attempt) are compile-time impossible by keeping the transition method private to the package with explicit methods (`MarkProcessing`, `MarkComplete`, `MarkFailed`).
 
-- [ ] **Step 3: Implement chunk proxy and repository, run suites**
+- [x] **Step 3: Implement chunk proxy and repository, run suites**
 
 `PUT` handler streams the request body to the stored `upload_url` with computed `Content-Range`; records `publish_chunks` rows; a 1-hour-expired `upload_url` starts a fresh init transparently and returns the new plan.
 
-- [ ] **Step 4: Gates and commit**
+- [x] **Step 4: Gates and commit**
 
 ```bash
 cd app-serve && go test -race ./internal/publish/ && cd .. && bash scripts/gates/all.sh
@@ -515,19 +517,19 @@ git commit -m "feat(app-serve): publish orchestration, chunk proxy, idempotency"
 
 `authorization.removed` handling per 002: mark revoked, delete token material, cancel scheduled publishes for the `user_openid`.
 
-- [ ] **Step 1: Write failing verification and handler tests**
+- [x] **Step 1: Write failing verification and handler tests**
 
 Vectors from 002 section 5.2, including the Review Focus body-mutation cases. Run: FAIL.
 
-- [ ] **Step 2: Implement verify, schema, handler**
+- [x] **Step 2: Implement verify, schema, handler**
 
 Body read with a 64KB limit before verification. Constant-time compare. Any failure to `401` with a generic problem body and a structured log including the source IP but never the body.
 
-- [ ] **Step 3: Implement store, dispatcher, worker, reconciler**
+- [x] **Step 3: Implement store, dispatcher, worker, reconciler**
 
 `dedupe_key = event + ":" + publish_id + ":" + (post_id or create_time)`. Insert-then-ack ordering per 002 section 5.4. Worker wraps each job in panic recovery. Reconciler uses exponential backoff with jitter and stops after a bounded number of attempts, marking the attempt `RECONCILE_EXHAUSTED` for operator attention.
 
-- [ ] **Step 4: Run suites, gates, commit**
+- [x] **Step 4: Run suites, gates, commit**
 
 ```bash
 cd app-serve && go test -race ./internal/webhook/ && cd .. && bash scripts/gates/all.sh
@@ -548,15 +550,15 @@ git commit -m "feat(app-serve): TikTok webhook intake, verify, dispatch, reconci
   - `GET /api/v1/videos`, `POST /api/v1/videos/query` (max 20 ids enforced), `GET /api/v1/videos/{video_id}`, `GET /api/v1/videos/{video_id}/stats`, `POST /api/v1/videos/{video_id}/stats/refresh`, `GET /api/v1/accounts/{id}/profile`
   - Missing count fields omitted, never zeroed; every stats body carries `fetched_at`; stale cover URLs refreshed via query before display
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Tables: list maps TikTok page to our cursor envelope; query with 21 ids rejected; stats body omits a missing `like_count` (assert key absence, not zero); profile maps `follower_count` etc. from `user.info.stats`.
 
-- [ ] **Step 2: Implement repository, service, handler, router**
+- [x] **Step 2: Implement repository, service, handler, router**
 
 Snapshot writes are inserts, never updates, so history is append-only.
 
-- [ ] **Step 3: Run suites, gates, commit**
+- [x] **Step 3: Run suites, gates, commit**
 
 ```bash
 git add app-serve/internal/insight/
@@ -575,15 +577,15 @@ git commit -m "feat(app-serve): video reads, profile, stats snapshots"
 - Consumes: all service ports and env names from Tasks 3-11
 - Produces: `docker compose up` runs the full stack locally; Nginx terminates TLS for `app-tiktok.kentangtech.com`, serves app-ui, proxies `/api/v1` to app-serve and `/webhooks/tiktok` to the webhook handler
 
-- [ ] **Step 1: Write compose and nginx config**
+- [x] **Step 1: Write compose and nginx config**
 
 Postgres 17 with a named volume; Redis 7 with a named volume and `appendonly`; app-serve built from `app-serve/` with its `.env`; healthchecks on `/healthz`.
 
-- [ ] **Step 2: Write DESIGN.md skeleton**
+- [x] **Step 2: Write DESIGN.md skeleton**
 
 Sections: product, audience, mood, palette, typography, dials (`ENERGY/RHYTHM/MOTION`), identity motif. Explicitly marked as awaiting owner direction; no invented brand content (antislop R-37).
 
-- [ ] **Step 3: Full gate run and commit**
+- [x] **Step 3: Full gate run and commit**
 
 ```bash
 bash scripts/gates/all.sh

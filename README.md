@@ -29,7 +29,14 @@ scripts/gates/all.sh
 The gates cover `go vet`, `gofmt`, `staticcheck`, `golangci-lint`, the 250 line
 source limit, the AGENTS.md file header, comment hygiene, `go test -race`, and a
 gitleaks pass. The integration suite is skipped unless `GENAUTO_TEST_POSTGRES_DSN`
-is set.
+is set. Its tagged tests expect a database named `genauto_test`, which the
+migration fixtures rebuild between runs; the compose stack pins PostgreSQL 17,
+while the suite also runs against the local host cluster (14) over a peer
+socket, for example `postgres://$USER@/genauto_test?host=/var/run/postgresql`.
+
+Install the hooks once per clone with `scripts/hooks/install.sh`. It sets
+`core.hooksPath` to `scripts/hooks`, which is what makes `pre-commit` and
+`pre-push` run these gates instead of a repo-local hook file.
 
 ## Local stack
 

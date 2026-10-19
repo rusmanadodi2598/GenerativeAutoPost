@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Completed 2026-10-17. Every task landed on `main`, the checked steps were confirmed against the commit history on 2026-10-18, and `scripts/gates/all.sh` passes, including the tagged suite against the local PostgreSQL 14 host cluster. The compose stack still pins PostgreSQL 17.
+
 **Goal:** Give the dashboard a real operator sign in with Google OIDC, allowlisted to one email, and demote TikTok OAuth to a connect-account flow.
 
 **Architecture:** A new `internal/platform/googleoidc` client builds the authorize URL, exchanges the code, and verifies the `id_token` against Google's JWKS with stdlib crypto. `internal/auth` gains a Google service that consumes the state, verifies the token, checks the allowlist, ensures the operator row, and mints the existing Redis session. `internal/operator` owns the `users` row. The TikTok callback stops minting sessions.
@@ -43,19 +45,19 @@
 **Interfaces:**
 - Produces: `Config.GoogleClientID`, `Config.GoogleClientSecret`, `Config.GoogleRedirectURI`, `Config.OperatorEmail`, `Config.AppUIBaseURL` (all `string`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `config/wiring_test.go`:
 - `TestLoad_GoogleLoginKeysRequired` sets a full valid env, then clears each of `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OPERATOR_EMAIL` in turn and asserts `Load` returns an error naming that key.
 - `TestLoad_OperatorEmailMustBeAnEmail` sets `OPERATOR_EMAIL=not-an-email` and asserts an error.
 - `TestLoad_AppUIBaseURLIsOptional` leaves `APP_UI_BASE_URL` empty and asserts `Load` succeeds with an empty value, then sets it and asserts it round-trips.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/config/ -run Google -v`
 Expected: FAIL, the fields and env keys do not exist.
 
-- [ ] **Step 3: Add the fields and loading**
+- [x] **Step 3: Add the fields and loading**
 
 In `config.go`, add to `Config`:
 ```go
@@ -67,16 +69,16 @@ AppUIBaseURL       string
 ```
 Populate them in `Load` with `getenv("GOOGLE_CLIENT_ID")`, `getenv("GOOGLE_CLIENT_SECRET")`, `getenv("GOOGLE_REDIRECT_URI")`, `getenv("OPERATOR_EMAIL")`, `getenv("APP_UI_BASE_URL")`.
 
-- [ ] **Step 4: Add the env keys to `.env.example`**
+- [x] **Step 4: Add the env keys to `.env.example`**
 
 Under the TikTok credentials block, add commented-empty `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OPERATOR_EMAIL`, and `APP_UI_BASE_URL`, each with a one-line comment. Keep the existing "Every key maps to docs/SPEC/001 section 11" note true.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test ./internal/config/ -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app-serve/internal/config/config.go app-serve/internal/config/wiring_test.go app-serve/.env.example
@@ -119,7 +121,7 @@ func (c *Client) VerifyIDToken(ctx context.Context, raw string, nonce string) (C
 ```
 - `VerifyIDToken` order: parse JWT, require `alg=RS256`, read `kid`, select the JWKS key (refetch once on unknown `kid`), verify the signature over `header.payload`, decode the payload, then check `iss` in `{"https://accounts.google.com","accounts.google.com"}`, `aud == ClientID`, `exp` in the future, `iat` not in the future, `nonce` equal, `email_verified` true, `email` non-empty. Any failure is an error.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `oidc_test.go`, build helpers that generate an RSA key, sign a JWT with `crypto/rsa` + `crypto/sha256`, and serve its JWKS over `httptest`. Tests:
 - `TestVerifyIDToken_AcceptsAValidToken` returns `Email` and `Subject` from the claims.
@@ -131,21 +133,21 @@ In `oidc_test.go`, build helpers that generate an RSA key, sign a JWT with `cryp
 - `TestVerifyIDToken_RejectsUnverifiedEmail` sets `email_verified=false`, expects an error.
 - `TestVerifyIDToken_RefetchesOnUnknownKid` serves two key ids across two responses and asserts the second key verifies.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/platform/googleoidc/ -v`
 Expected: FAIL, package or symbols missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `oidc.go`: the `Client`, `New`, JWT split, header/payload structs, and the claim checks. `jwks.go`: the JWKS struct (`keys[].kid`, `kty="RSA"`, `n`, `e`), base64url big-int decode into `*rsa.PublicKey`, a small cached key map with a TTL, and a refetch path for an unknown `kid`. Use `encoding/base64` RawURLEncoding and `math/big`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race ./internal/platform/googleoidc/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/platform/googleoidc/
@@ -170,26 +172,26 @@ func (c *Client) ExchangeCode(ctx context.Context, code string) (string, error) 
 - `AuthorizeURL` sets `client_id`, `redirect_uri`, `response_type=code`, `scope=openid email`, `state`, `nonce` on the configured `AuthURL`.
 - `ExchangeCode` posts `application/x-www-form-urlencoded` with `code`, `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code`, and returns the `id_token` field from the JSON response.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `exchange_test.go` with `httptest`:
 - `TestAuthorizeURL_CarriesStateAndNonce` asserts the parsed query has the client id, redirect, `scope=openid email`, the state, and the nonce.
 - `TestExchangeCode_PostsGrantAndReturnsIDToken` stands up a fake token endpoint and asserts the form fields and the returned `id_token`.
 - `TestExchangeCode_ErrorsOnProviderError` returns `{"error":"invalid_grant"}` and expects an error that does not echo the body verbatim.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/platform/googleoidc/ -run Exchange -v`
 Expected: FAIL, methods missing.
 
-- [ ] **Step 3: Implement** `exchange.go` with a `net/http` client and an explicit request timeout on the context.
+- [x] **Step 3: Implement** `exchange.go` with a `net/http` client and an explicit request timeout on the context.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race ./internal/platform/googleoidc/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/platform/googleoidc/exchange.go app-serve/internal/platform/googleoidc/exchange_test.go
@@ -217,31 +219,31 @@ func (r *Repository) Ensure(ctx context.Context, id string, email string) error
 ```
 - `Ensure` inserts `(id, email)` into `users` and, on re-login, updates `email` for the same `id`.
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 `up`: `ALTER TABLE users DROP COLUMN password_hash;`
 `down`: `ALTER TABLE users ADD COLUMN password_hash text NOT NULL DEFAULT '';`
 One-line comment each, naming `users` and the Google-only operator.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `repository_test.go` under the `integration` build tag using the shared test pool helper:
 - `TestEnsure_InsertsTheOperatorRow` calls `Ensure` then queries `users` for the id and email.
 - `TestEnsure_IsIdempotentAndUpdatesEmail` calls `Ensure` twice with the same id and a new email, asserts one row and the new email.
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `GENAUTO_TEST_POSTGRES_DSN="..." go test -tags=integration ./internal/operator/ -v`
 Expected: FAIL, package missing.
 
-- [ ] **Step 4: Implement** `repository.go` with `INSERT ... ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`.
+- [x] **Step 4: Implement** `repository.go` with `INSERT ... ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `GENAUTO_TEST_POSTGRES_DSN="..." go test -race -tags=integration ./internal/operator/ -v`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add migrations/000009_users_drop_password.up.sql migrations/000009_users_drop_password.down.sql app-serve/internal/operator/
@@ -282,7 +284,7 @@ func (s *GoogleService) Complete(ctx context.Context, code, state string) (*Sess
 - `AuthorizeURL` mints a nonce, stores it as the state payload, and returns the provider URL.
 - `Complete` consumes the state into the nonce, exchanges the code, verifies the token with that nonce, compares the email to `OperatorEmail` trimmed and lowercased, returns a generic 403 on a mismatch, calls `operators.Ensure`, and mints the session with an empty scope list.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `google_test.go` with a fake `GoogleProvider`, a fake `OperatorEnsurer`, and the real `StateStore`/`SessionStore` over `miniredis`:
 - `TestGoogleComplete_MintsASessionForTheAllowlistedEmail`.
@@ -292,19 +294,19 @@ func (s *GoogleService) Complete(ctx context.Context, code, state string) (*Sess
 - `TestGoogleComplete_RejectsATokenWithTheWrongNonce`.
 - `TestGoogleComplete_EnsuresTheOperatorRow` asserts `Ensure` was called with the operator id and email.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/auth/ -run Google -v`
 Expected: FAIL, symbols missing.
 
-- [ ] **Step 3: Implement** `google.go` and add `mintSession(operatorID string, scopes []string)` to `session.go`. Log a refused email at warn with the address. Leave `Service` and `CompleteCallback` untouched; the TikTok demotion lands in Task 6 so every task keeps a compiling tree.
+- [x] **Step 3: Implement** `google.go` and add `mintSession(operatorID string, scopes []string)` to `session.go`. Log a refused email at warn with the address. Leave `Service` and `CompleteCallback` untouched; the TikTok demotion lands in Task 6 so every task keeps a compiling tree.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race ./internal/auth/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/auth/google.go app-serve/internal/auth/google_test.go app-serve/internal/auth/session.go app-serve/internal/auth/state.go
@@ -364,7 +366,7 @@ func RegisterGoogleRoutes(r gin.IRouter, google *GoogleService, cfg RouterConfig
 - `Service.CompleteCallback` drops the session mint and `Service.newSession`
   is removed; the shared `mintSession` helper from Task 5 is the only minter.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 - `TestGoogleAuthorize_RedirectsToGoogle` asserts a 302 whose Location host is Google.
 - `TestGoogleAuthorize_Throttled` uses a refusing `IPLimiter` and expects 429.
@@ -374,19 +376,19 @@ func RegisterGoogleRoutes(r gin.IRouter, google *GoogleService, cfg RouterConfig
 - Update `handler_oauth_test.go` so the TikTok callback tests carry a session.
 - `TestCompleteCallback_UpsertsOnly` in `service_callback_test.go` asserts no session is created and the account is upserted for the passed operator id.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd app-serve && go test ./internal/auth/ -run 'Google|TikTokAuthorize' -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** the handlers, the redirect guard, `RegisterGoogleRoutes`, and the TikTok demotion in `service.go` and `handler_callback.go`.
+- [x] **Step 3: Implement** the handlers, the redirect guard, `RegisterGoogleRoutes`, and the TikTok demotion in `service.go` and `handler_callback.go`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race ./internal/auth/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app-serve/internal/auth/handler_google.go app-serve/internal/auth/router.go app-serve/internal/auth/middleware.go app-serve/internal/auth/handler_callback.go app-serve/internal/auth/service.go app-serve/internal/auth/google_handler_test.go app-serve/internal/auth/handler_oauth_test.go app-serve/internal/auth/service_callback_test.go
@@ -406,28 +408,28 @@ git commit -m "feat(auth): mount the google routes and demote the tiktok callbac
 - Consumes: `googleoidc.New`, `operator.NewRepository`, `auth.NewGoogleService`, `auth.RegisterGoogleRoutes`, `auth.RegisterRoutes`, `auth.Throttle`, `ratelimit.NewWindow`.
 - Produces: a wired `App` whose auth routes include Google, whose auth redirect base is `cfg.AppUIBaseURL`, and whose Google routes carry the IP throttle.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `build_test.go`: `TestBuild_WiresGoogleLogin` asserts `Build` succeeds with the Google config set and does not panic, and that the auth `ServiceConfig.AppUIBaseURL` is `cfg.AppUIBaseURL` (assert through the built engine or a small accessor).
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `cd app-serve && go test ./internal/compose/ -run Google -v`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** the wiring: build one `auth.NewStateStore(client)`, pass it to both services, construct `googleoidc.New`, `operator.NewRepository(pool)`, `auth.NewGoogleService`, set `auth.ServiceConfig.AppUIBaseURL = cfg.AppUIBaseURL`, build the throttle as `auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)` with `googleThrottleMax = 30` and `googleThrottleWindow = time.Minute`, set it on the `auth.RouterConfig` passed to `auth.RegisterGoogleRoutes`, and leave the TikTok `auth.RegisterRoutes` mount as it is.
+- [x] **Step 3: Implement** the wiring: build one `auth.NewStateStore(client)`, pass it to both services, construct `googleoidc.New`, `operator.NewRepository(pool)`, `auth.NewGoogleService`, set `auth.ServiceConfig.AppUIBaseURL = cfg.AppUIBaseURL`, build the throttle as `auth.Throttle(ratelimit.NewWindow(client, googleThrottleMax, googleThrottleWindow, logger), logger)` with `googleThrottleMax = 30` and `googleThrottleWindow = time.Minute`, set it on the `auth.RouterConfig` passed to `auth.RegisterGoogleRoutes`, and leave the TikTok `auth.RegisterRoutes` mount as it is.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd app-serve && go test -race ./internal/compose/ -v`
 Expected: PASS.
 
-- [ ] **Step 5: Build and run the full suite**
+- [x] **Step 5: Build and run the full suite**
 
 Run: `cd app-serve && go build ./... && go test -race ./...`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app-serve/internal/compose/
@@ -447,28 +449,28 @@ git commit -m "feat(compose): wire the google login client and operator store"
 
 **Interfaces:** none; documentation only.
 
-- [ ] **Step 1: Update SPEC 001**
+- [x] **Step 1: Update SPEC 001**
 
 Section 4.1: auth now covers Google sign in and TikTok connect. Section 5: `users` loses `password_hash`, gained at login. Section 11: add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OPERATOR_EMAIL`, `APP_UI_BASE_URL`.
 
-- [ ] **Step 2: Update SPEC 003**
+- [x] **Step 2: Update SPEC 003**
 
 Section 7.1: add `GET /auth/google/authorize` and `GET /auth/google/callback`; mark the TikTok authorize and callback routes session-guarded. Section 8: the Google callback is the login entry, the allowlist gates it.
 
-- [ ] **Step 3: Update SYSTEM_MAP**
+- [x] **Step 3: Update SYSTEM_MAP**
 
 Section 3 route table: add the two Google routes, note the TikTok connect guard. Section 5 integrations: add Google OIDC. Section 9 known gaps: drop "No operator login" and "No `sessions` mirror" stays only if still true.
 
-- [ ] **Step 4: Update the CHANGELOG and README**
+- [x] **Step 4: Update the CHANGELOG and README**
 
 Add the sign-in line under "What landed"; note the `internal/operator` and `internal/platform/googleoidc` packages in the README layout if it lists packages.
 
-- [ ] **Step 5: Run the doc gate**
+- [x] **Step 5: Run the doc gate**
 
 Run: `bash scripts/gates/antislop.sh`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/SPEC/001-BACKEND-ARCHITECTURE.md docs/SPEC/003-API-CONTRACT.md SYSTEM_MAP.md docs/CHANGELOG/001-V1-BACKEND.md app-serve/README.md
@@ -479,6 +481,6 @@ git commit -m "docs: record the operator google login"
 
 ## Final Verification
 
-- [ ] `bash scripts/gates/all.sh` passes at the repo root.
-- [ ] `GENAUTO_TEST_POSTGRES_DSN="..." go test -race -p 1 -tags=integration ./...` passes in `app-serve`.
-- [ ] A whole-branch review runs before merge.
+- [x] `bash scripts/gates/all.sh` passes at the repo root.
+- [x] `GENAUTO_TEST_POSTGRES_DSN="..." go test -race -p 1 -tags=integration ./...` passes in `app-serve`.
+- [x] A whole-branch review runs before merge.
