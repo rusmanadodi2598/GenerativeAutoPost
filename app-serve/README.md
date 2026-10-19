@@ -37,14 +37,20 @@ set -a; . ./.env; set +a
 go run ./cmd/app-serve
 ```
 
+Both dependencies must be reachable before boot: PostgreSQL 17 through
+`DATABASE_URL`, Redis 7 through `REDIS_URL`. The tagged integration suite needs
+only the first, so `scripts/gates/all.sh` passes on a host with no Redis.
+
 Docker Compose loads the same file through `env_file`, so `docker compose up`
 needs no manual export.
 
 ## Testing
 
-Tests use `github.com/alicebob/miniredis/v2` as a test-only dependency for the
-Redis rate limiter: it runs the real Lua script and exercises window expiry,
-which a hand-rolled fake would not.
+Tests use `github.com/alicebob/miniredis/v2` as a test-only dependency. The
+Google state store, the TikTok state store, the idempotency claims, the rate
+limiter, and the composition tests all run against it, so the real Lua scripts
+and key TTLs are exercised without a live Redis. A hand-rolled fake would not
+cover window expiry or the claim-and-release sequence.
 
 The standard library cannot generate UUIDv7, so `github.com/google/uuid`
 provides the account row identifiers.

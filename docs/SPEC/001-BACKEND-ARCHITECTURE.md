@@ -175,7 +175,7 @@ Per `docs/RULLES/TDD.md`, tests are written before or alongside implementation, 
 |---|---|
 | `domain` | Pure unit tests, no I/O |
 | `service` | Unit tests against fake repositories and a fake TikTok client |
-| `repository` | Integration tests against a real PostgreSQL 17 and Redis 7, via Testcontainers |
+| `repository` | Integration tests against a real PostgreSQL 17, gated by `GENAUTO_TEST_POSTGRES_DSN`. Redis backed stores run `miniredis`, which executes the real Lua, so no Redis container is involved |
 | `handler` | `net/http/httptest`, one happy path, one validation failure, one auth failure per route |
 | `tiktokclient` | `httptest` fake TikTok server replaying real endpoints, error codes, and rate limits |
 | webhook | Duplicate delivery, invalid signature, stale timestamp, reordered events |
