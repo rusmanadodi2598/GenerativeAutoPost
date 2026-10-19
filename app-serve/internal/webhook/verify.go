@@ -58,8 +58,13 @@ func parseSignature(header string) (signatureParts, bool) {
 }
 
 // Verify parses the TikTok-Signature header and checks it over the
-// exact raw body bytes. Every failure returns CodeUnauthorized.
+// exact raw body bytes. Every failure returns CodeUnauthorized. An empty
+// secret refuses every delivery: HMAC with a zero length key is a real key,
+// so a misconfigured deploy must not answer 200 to forged signatures.
 func Verify(secret string, header string, rawBody []byte, now time.Time, tolerance time.Duration) error {
+	if secret == "" {
+		return invalidSignature()
+	}
 	parts, ok := parseSignature(header)
 	if !ok {
 		return invalidSignature()

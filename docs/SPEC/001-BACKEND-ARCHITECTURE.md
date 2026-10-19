@@ -193,7 +193,7 @@ Typed config struct validated at boot. No `os.Getenv` outside `internal/config`.
 | `DATABASE_URL` | PostgreSQL 17 DSN |
 | `DB_MAX_OPEN_CONNS`, `DB_MAX_IDLE_CONNS`, `DB_CONN_MAX_LIFETIME` | Pool limits, set explicitly per `AGENTS.md` 1.7 |
 | `REDIS_URL` | Redis 7 DSN |
-| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | App credentials |
+| `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` | App credentials, both required at boot; the secret is also the webhook HMAC key |
 | `TIKTOK_REDIRECT_URI` | Must match the registered URI exactly |
 | `TIKTOK_SCOPES` | Comma-joined scope list |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google OAuth client for operator sign in, both required at boot |

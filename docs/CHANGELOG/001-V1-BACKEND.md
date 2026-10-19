@@ -42,10 +42,13 @@ prunes rows older than the retention cutoff after each sweep.
 - Webhook intake is idempotent per event id, and a duplicate apply is a no-op.
 - Sign in is Google only, and only the email in `OPERATOR_EMAIL` is allowed.
   TikTok OAuth is a connect step for an operator who already has a session.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and
-  `OPERATOR_EMAIL` are required at boot; an existing `.env` must add them
-  before the next deploy. Behind a reverse proxy set `TRUSTED_PROXIES`, or
-  every client shares one auth throttle budget.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
+  `OPERATOR_EMAIL`, and `TIKTOK_CLIENT_SECRET` are required at boot; an
+  existing `.env` must add them before the next deploy. The webhook HMAC key is
+  the TikTok client secret, so an empty value would accept any signature
+  derived from a blank key, and `webhook.Verify` refuses an empty secret as the
+  second layer. Behind a reverse proxy set `TRUSTED_PROXIES`, or every client
+  shares one auth throttle budget.
 - The operator row in `users` is upserted at sign in, so
   `tiktok_accounts.user_id` has a parent.
 - The public host is `app-post.kentangtech.com`, recorded in

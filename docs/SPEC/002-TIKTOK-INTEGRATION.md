@@ -214,6 +214,10 @@ Algorithm:
 4. Compare with `hmac.Equal` (constant time) against `s`.
 5. Reject if `|now - t|` is greater than the tolerance (suggested 5 minutes).
 
+The key is `TIKTOK_CLIENT_SECRET`, which boot requires to be non-empty. An
+empty secret would key the HMAC with nothing, so the verifier refuses every
+delivery in that state rather than accepting a signature anyone can forge.
+
 The raw body is read with a size limit (suggested 64 KB). Verification runs before JSON decoding. Any failure returns `401` with a generic problem response, and the failure is logged with the source IP.
 
 ### 5.3 Events

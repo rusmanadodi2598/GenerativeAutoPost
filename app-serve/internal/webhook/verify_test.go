@@ -31,6 +31,23 @@ func sign(t *testing.T, secret string, stamp int64, body []byte) string {
 	return "t=" + strconv.FormatInt(stamp, 10) + ",s=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+// TestVerify_GivenEmptySecret_ThenNoDeliveryPasses pins the misconfiguration
+// path. A blank secret HMACs with a key of nothing, so the signature an
+// attacker can compute without any secret at all must still be refused.
+func TestVerify_GivenEmptySecret_ThenNoDeliveryPasses(t *testing.T) {
+	body := []byte(`{"event":"post.publish.complete"}`)
+	const stamp = int64(1728664800)
+	now := time.Unix(stamp, 0)
+
+	header := sign(t, "", stamp, body)
+	if err := Verify("", header, body, now, 5*time.Minute); err == nil {
+		t.Error("Verify accepted a blank-key signature under an empty secret")
+	}
+	if err := Verify("", "t=1728664800,s=zzzz", body, now, 5*time.Minute); err == nil {
+		t.Error("Verify accepted a malformed signature under an empty secret")
+	}
+}
+
 // TestVerify_GivenVectors_ThenVerdictMatchesContract is the 002
 // section 5.2 vector suite plus the Review Focus mutation cases.
 func TestVerify_GivenVectors_ThenVerdictMatchesContract(t *testing.T) {

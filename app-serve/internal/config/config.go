@@ -56,14 +56,14 @@ type Config struct {
 	DBConnMaxLifetime    time.Duration `validate:"gte=0"`
 	RedisURL             string        `validate:"required"`
 	TikTokClientKey      string        `validate:"required"`
-	TikTokClientSecret   string
-	TikTokRedirectURI    string `validate:"required"`
-	TikTokScopes         string `validate:"required"`
-	GoogleClientID       string `validate:"required" env:"GOOGLE_CLIENT_ID"`
-	GoogleClientSecret   string `validate:"required" env:"GOOGLE_CLIENT_SECRET"`
-	GoogleRedirectURI    string `validate:"required" env:"GOOGLE_REDIRECT_URI"`
-	OperatorEmail        string `validate:"required,email" env:"OPERATOR_EMAIL"`
-	AppUIBaseURL         string `env:"APP_UI_BASE_URL"`
+	TikTokClientSecret   string        `validate:"required"`
+	TikTokRedirectURI    string        `validate:"required"`
+	TikTokScopes         string        `validate:"required"`
+	GoogleClientID       string        `validate:"required" env:"GOOGLE_CLIENT_ID"`
+	GoogleClientSecret   string        `validate:"required" env:"GOOGLE_CLIENT_SECRET"`
+	GoogleRedirectURI    string        `validate:"required" env:"GOOGLE_REDIRECT_URI"`
+	OperatorEmail        string        `validate:"required,email" env:"OPERATOR_EMAIL"`
+	AppUIBaseURL         string        `env:"APP_UI_BASE_URL"`
 	TrustedProxies       []string
 	TokenEncKey          []byte `validate:"required,len=32"`
 	TokenEncKeyID        string `validate:"required"`

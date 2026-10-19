@@ -32,6 +32,7 @@ func baseEnv() map[string]string {
 		"DATABASE_URL":         "postgres://localhost:5432/genauto?sslmode=disable",
 		"REDIS_URL":            "redis://localhost:6379/0",
 		"TIKTOK_CLIENT_KEY":    "key123",
+		"TIKTOK_CLIENT_SECRET": "tiktok-webhook-secret",
 		"TIKTOK_REDIRECT_URI":  "https://app.example.com/cb",
 		"TIKTOK_SCOPES":        "user.info.basic",
 		"GOOGLE_CLIENT_ID":     "client-id.apps.googleusercontent.com",
@@ -67,6 +68,14 @@ func TestLoad(t *testing.T) {
 		// Short keys break AES-256 which needs 32 bytes.
 		{name: "short TOKEN_ENC_KEY", mutate: func(m map[string]string) {
 			m["TOKEN_ENC_KEY"] = "tooshort"
+		}, wantErr: true},
+		// An absent client secret leaves the webhook HMAC keyed by nothing,
+		// so a forged signature would pass. Boot must refuse it.
+		{name: "missing TIKTOK_CLIENT_SECRET", mutate: func(m map[string]string) {
+			delete(m, "TIKTOK_CLIENT_SECRET")
+		}, wantErr: true},
+		{name: "empty TIKTOK_CLIENT_SECRET", mutate: func(m map[string]string) {
+			m["TIKTOK_CLIENT_SECRET"] = ""
 		}, wantErr: true},
 		{name: "valid minimal env", mutate: func(m map[string]string) {}, wantErr: false},
 	}
