@@ -1,0 +1,14 @@
+[Unit]
+Description=Reverse SSH tunnel for GenerativeAutoPost (Cloudflare relay)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# One line, mode 600, never committed: RELAY_TARGET=user@relay-host
+EnvironmentFile=%h/.config/genauto/relay.env
+ExecStart=/usr/bin/ssh -NT -o ExitOnForwardFailure=yes -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:18080:127.0.0.1:8080 ${RELAY_TARGET}
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

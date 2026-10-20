@@ -9,6 +9,9 @@ Local and server wiring for the GenerativeAutoPost stack.
 - `nginx/app-post.conf`: TLS edge config for
   `app-post.kentangtech.com`. Includes `server`, `location`, and `upstream`
   blocks; paste the `server` blocks into the host's `nginx.conf` `http` block.
+- `cloudflare/README.md`: API-token driven Cloudflare Tunnel setup for the
+  development PC, plus the Zero Trust applications around it.
+- `cloudflare/genauto-tunnel.service`: systemd user unit for the tunnel.
 - `../app-serve/Dockerfile`: multi-stage build, static Go binary on Alpine.
 
 ## Required environment
@@ -53,3 +56,10 @@ sudo nginx -t && sudo systemctl reload nginx
 TLS certificates live at `/etc/letsencrypt/live/app-post.kentangtech.com/`.
 The `app-ui` upstream points at port 3000; it 502s until the UI service is
 added to the compose file. Expected and harmless during the backend phase.
+
+## Cloudflare Tunnel (development)
+
+The development PC has no public IP. `cloudflare/README.md` covers the
+API-token driven tunnel that points `app-post.kentang.ai.id` at the local
+`app-serve`, including the Zero Trust access policy and the TikTok webhook
+bypass. Read it before replacing the current DNS record for that hostname.
